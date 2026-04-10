@@ -10620,22 +10620,28 @@ function _enviarParaSheets() {
   _pendenteSalvar = false;
   const el = document.getElementById('sync-status');
 
-  fetch(SHEETS_API_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ entradas, saidas, nextId })
-  })
-  .then(() => {
+  const cbName = '_gsSave_' + Date.now();
+  const payload = encodeURIComponent(JSON.stringify({ entradas, saidas, nextId }));
+  const script = document.createElement('script');
+  script.src = SHEETS_API_URL + '?action=salvar&callback=' + cbName + '&data=' + payload;
+
+  window[cbName] = function(res) {
+    delete window[cbName];
+    script.remove();
     _salvandoRemoto = false;
     if (_pendenteSalvar) _enviarParaSheets();
-    if (el) { el.textContent = '☁️ Salvo'; el.style.color = 'var(--verde-claro)'; }
-  })
-  .catch(err => {
+    if (el) {
+      el.textContent = (res && res.status === 'ok') ? '☁️ Salvo' : '⚠️ Erro ao salvar';
+      el.style.color  = (res && res.status === 'ok') ? 'var(--verde-claro)' : '#f87171';
+    }
+  };
+  script.onerror = function() {
+    delete window[cbName];
+    script.remove();
     _salvandoRemoto = false;
-    console.warn('Falha ao salvar:', err);
     if (el) { el.textContent = '⚠️ Sem conexão'; el.style.color = '#fbbf24'; }
-  });
+  };
+  document.head.appendChild(script);
 }
 
 function carregarDados() {
@@ -10743,22 +10749,30 @@ function sincronizarForcado() {
   if (btn) btn.disabled = true;
   if (msg) { msg.textContent = '⏳ Enviando...'; msg.style.color = 'var(--cinza)'; }
 
-  fetch(SHEETS_API_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ entradas, saidas, nextId })
-  })
-  .then(() => {
-    if (msg) { msg.textContent = '✅ Dados enviados com sucesso!'; msg.style.color = 'var(--verde)'; }
+  const cbName = '_gsSyncF_' + Date.now();
+  const payload = encodeURIComponent(JSON.stringify({ entradas, saidas, nextId }));
+  const script = document.createElement('script');
+  script.src = SHEETS_API_URL + '?action=salvar&callback=' + cbName + '&data=' + payload;
+
+  window[cbName] = function(res) {
+    delete window[cbName];
+    script.remove();
     if (btn) btn.disabled = false;
-    const el = document.getElementById('sync-status');
-    if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
-  })
-  .catch(() => {
+    if (res && res.status === 'ok') {
+      if (msg) { msg.textContent = '✅ Dados enviados com sucesso!'; msg.style.color = 'var(--verde)'; }
+      const el = document.getElementById('sync-status');
+      if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
+    } else {
+      if (msg) { msg.textContent = '❌ Falha: ' + (res && res.msg ? res.msg : 'erro desconhecido'); msg.style.color = 'var(--vermelho)'; }
+    }
+  };
+  script.onerror = function() {
+    delete window[cbName];
+    script.remove();
+    if (btn) btn.disabled = false;
     if (msg) { msg.textContent = '❌ Falha ao enviar. Verifique sua conexão.'; msg.style.color = 'var(--vermelho)'; }
-    if (btn) btn.disabled = false;
-  });
+  };
+  document.head.appendChild(script);
 }
 
 // ========== LOGIN ==========
