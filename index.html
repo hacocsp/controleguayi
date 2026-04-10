@@ -639,7 +639,7 @@
     <div class="saldo-header">
       <div class="label">Saldo Atual</div>
       <div class="valor" id="saldo-header-val">R$ 14.326,24</div>
-      <div id="sync-status" style="font-size:10px;opacity:0.7;margin-top:2px;display:none"></div>
+      <div id="sync-status" style="font-size:10px;opacity:0.7;margin-top:2px;display:none">⏳ Sincronizando...</div>
     </div>
   </div>
 </header>
@@ -10609,18 +10609,14 @@ function _enviarParaSheets() {
 
   fetch(SHEETS_API_URL, {
     method: 'POST',
-    mode: 'cors',
+    mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ entradas, saidas, nextId })
   })
-  .then(r => r.json())
-  .then(res => {
+  .then(() => {
     _salvandoRemoto = false;
     if (_pendenteSalvar) _enviarParaSheets();
-    if (el) {
-      el.textContent = res.status === 'ok' ? '☁️ Salvo' : '⚠️ Erro ao salvar';
-      el.style.color  = res.status === 'ok' ? 'var(--verde-claro)' : '#f87171';
-    }
+    if (el) { el.textContent = '☁️ Salvo'; el.style.color = 'var(--verde-claro)'; }
   })
   .catch(err => {
     _salvandoRemoto = false;
@@ -10643,32 +10639,53 @@ function carregarDados() {
   if (!SHEETS_API_URL) return;
 
   const el = document.getElementById('sync-status');
-  if (el) { el.textContent = '⏳ Sincronizando...'; el.style.color = '#94a3b8'; }
+  if (el) { el.style.display = 'block'; el.textContent = '⏳ Sincronizando...'; el.style.color = '#94a3b8'; }
 
-  fetch(SHEETS_API_URL + '?action=carregar', { method: 'GET', mode: 'cors' })
-    .then(r => r.json())
-    .then(res => {
-      if (res.status === 'ok' && res.data) {
-        const d = res.data;
-        if (Array.isArray(d.entradas) && d.entradas.length) entradas = d.entradas;
-        if (Array.isArray(d.saidas)   && d.saidas.length)   saidas   = d.saidas;
-        if (d.nextId && parseInt(d.nextId) > nextId) nextId = parseInt(d.nextId);
-        try {
-          localStorage.setItem('poupanca_guayi_entradas', JSON.stringify(entradas));
-          localStorage.setItem('poupanca_guayi_saidas',   JSON.stringify(saidas));
-          localStorage.setItem('poupanca_guayi_nextid',   String(nextId));
-        } catch(e) {}
-      }
+  // Usa script tag (JSONP-like) para contornar CORS no GET
+  const cbName = '_gsCallback_' + Date.now();
+  const script = document.createElement('script');
+  script.src = SHEETS_API_URL + '?action=carregar&callback=' + cbName;
+
+  window[cbName] = function(res) {
+    delete window[cbName];
+    script.remove();
+    if (res && res.status === 'ok' && res.data) {
+      const d = res.data;
+      if (Array.isArray(d.entradas) && d.entradas.length) entradas = d.entradas;
+      if (Array.isArray(d.saidas)   && d.saidas.length)   saidas   = d.saidas;
+      if (d.nextId && parseInt(d.nextId) > nextId) nextId = parseInt(d.nextId);
+      try {
+        localStorage.setItem('poupanca_guayi_entradas', JSON.stringify(entradas));
+        localStorage.setItem('poupanca_guayi_saidas',   JSON.stringify(saidas));
+        localStorage.setItem('poupanca_guayi_nextid',   String(nextId));
+      } catch(e) {}
       if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
-      initDashCharts();
-      renderEntradas();
-      renderSaidas();
-      atualizarSaldoHeader();
-      setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
-    })
-    .catch(() => {
+    } else {
       if (el) { el.textContent = '⚠️ Offline — dados locais'; el.style.color = '#fbbf24'; }
-    });
+    }
+    initDashCharts();
+    renderEntradas();
+    renderSaidas();
+    atualizarSaldoHeader();
+    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
+  };
+
+  script.onerror = function() {
+    delete window[cbName];
+    script.remove();
+    if (el) { el.textContent = '⚠️ Offline — dados locais'; el.style.color = '#fbbf24'; }
+  };
+
+  // Timeout de 8s
+  setTimeout(() => {
+    if (window[cbName]) {
+      delete window[cbName];
+      script.remove();
+      if (el) { el.textContent = '⚠️ Offline — dados locais'; el.style.color = '#fbbf24'; }
+    }
+  }, 8000);
+
+  document.head.appendChild(script);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
