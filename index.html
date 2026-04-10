@@ -1294,6 +1294,19 @@
 <div id="tab-importacao" class="tab-panel">
   <div class="sec-title">📂 Importar Dados · Entradas e Saídas</div>
 
+  <!-- SINCRONIZAÇÃO FORÇADA -->
+  <div class="form-card" style="margin-bottom:20px;border:1.5px solid var(--verde-claro)">
+    <h3 style="margin:0 0 8px;color:var(--verde);font-size:15px">☁️ Sincronizar dados locais com Google Sheets</h3>
+    <p style="font-size:13px;color:var(--cinza);margin:0 0 14px;line-height:1.6">
+      Use este botão para enviar todos os dados do seu navegador para o Google Sheets.
+      Útil na primeira vez que acessa em dispositivo novo, ou para forçar uma sincronização completa.
+    </p>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="sincronizarForcado()" id="btn-sync-forcado">☁️ Enviar dados locais para o Sheets</button>
+      <span id="sync-forcado-msg" style="font-size:13px;color:var(--cinza)"></span>
+    </div>
+  </div>
+
   <div class="form-card" style="margin-bottom:28px">
     <p style="font-size:14px;color:var(--cinza);line-height:1.6">
       ℹ️ Importe lançamentos a partir de arquivos <strong>Excel</strong> (.xlsx). 
@@ -10718,6 +10731,35 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === this) fecharModalFamilia();
   });
 });
+
+// ========== SINCRONIZAÇÃO FORÇADA ==========
+function sincronizarForcado() {
+  const btn = document.getElementById('btn-sync-forcado');
+  const msg = document.getElementById('sync-forcado-msg');
+  if (!SHEETS_API_URL) {
+    if (msg) { msg.textContent = '⚠️ Google Sheets não configurado.'; msg.style.color = 'var(--vermelho)'; }
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (msg) { msg.textContent = '⏳ Enviando...'; msg.style.color = 'var(--cinza)'; }
+
+  fetch(SHEETS_API_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ entradas, saidas, nextId })
+  })
+  .then(() => {
+    if (msg) { msg.textContent = '✅ Dados enviados com sucesso!'; msg.style.color = 'var(--verde)'; }
+    if (btn) btn.disabled = false;
+    const el = document.getElementById('sync-status');
+    if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
+  })
+  .catch(() => {
+    if (msg) { msg.textContent = '❌ Falha ao enviar. Verifique sua conexão.'; msg.style.color = 'var(--vermelho)'; }
+    if (btn) btn.disabled = false;
+  });
+}
 
 // ========== LOGIN ==========
 // Para alterar a senha, edite o valor abaixo e faça upload do arquivo atualizado
