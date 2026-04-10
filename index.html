@@ -10619,29 +10619,58 @@ function _enviarParaSheets() {
   _salvandoRemoto = true;
   _pendenteSalvar = false;
   const el = document.getElementById('sync-status');
-
-  const cbName = '_gsSave_' + Date.now();
-  const payload = encodeURIComponent(JSON.stringify({ entradas, saidas, nextId }));
-  const script = document.createElement('script');
-  script.src = SHEETS_API_URL + '?action=salvar&callback=' + cbName + '&data=' + payload;
-
-  window[cbName] = function(res) {
-    delete window[cbName];
-    script.remove();
-    _salvandoRemoto = false;
-    if (_pendenteSalvar) _enviarParaSheets();
-    if (el) {
-      el.textContent = (res && res.status === 'ok') ? '☁️ Salvo' : '⚠️ Erro ao salvar';
-      el.style.color  = (res && res.status === 'ok') ? 'var(--verde-claro)' : '#f87171';
+  _postParaSheets(
+    { entradas, saidas, nextId },
+    function(ok) {
+      _salvandoRemoto = false;
+      if (_pendenteSalvar) _enviarParaSheets();
+      if (el) {
+        el.textContent = ok ? '☁️ Salvo' : '⚠️ Erro ao salvar';
+        el.style.color  = ok ? 'var(--verde-claro)' : '#f87171';
+      }
     }
+  );
+}
+
+// Envia dados via iframe+form (contorna limite de URL e CORS)
+function _postParaSheets(dados, callback) {
+  const iframeId = '_gsIframe_' + Date.now();
+  const formId   = '_gsForm_'   + Date.now();
+
+  const iframe = document.createElement('iframe');
+  iframe.name = iframeId;
+  iframe.style.display = 'none';
+  document.body.appendChild(iframe);
+
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = SHEETS_API_URL;
+  form.target = iframeId;
+  form.style.display = 'none';
+
+  const input = document.createElement('input');
+  input.type  = 'hidden';
+  input.name  = 'payload';
+  input.value = JSON.stringify(dados);
+  form.appendChild(input);
+  document.body.appendChild(form);
+
+  let done = false;
+  iframe.onload = function() {
+    if (done) return;
+    done = true;
+    setTimeout(() => { iframe.remove(); form.remove(); }, 500);
+    if (callback) callback(true);
   };
-  script.onerror = function() {
-    delete window[cbName];
-    script.remove();
-    _salvandoRemoto = false;
-    if (el) { el.textContent = '⚠️ Sem conexão'; el.style.color = '#fbbf24'; }
-  };
-  document.head.appendChild(script);
+  // Timeout 10s
+  setTimeout(() => {
+    if (done) return;
+    done = true;
+    iframe.remove(); form.remove();
+    if (callback) callback(false);
+  }, 10000);
+
+  form.submit();
 }
 
 function carregarDados() {
@@ -10747,32 +10776,18 @@ function sincronizarForcado() {
     return;
   }
   if (btn) btn.disabled = true;
-  if (msg) { msg.textContent = '⏳ Enviando...'; msg.style.color = 'var(--cinza)'; }
+  if (msg) { msg.textContent = '⏳ Enviando dados...'; msg.style.color = 'var(--cinza)'; }
 
-  const cbName = '_gsSyncF_' + Date.now();
-  const payload = encodeURIComponent(JSON.stringify({ entradas, saidas, nextId }));
-  const script = document.createElement('script');
-  script.src = SHEETS_API_URL + '?action=salvar&callback=' + cbName + '&data=' + payload;
-
-  window[cbName] = function(res) {
-    delete window[cbName];
-    script.remove();
+  _postParaSheets({ entradas, saidas, nextId }, function(ok) {
     if (btn) btn.disabled = false;
-    if (res && res.status === 'ok') {
+    if (ok) {
       if (msg) { msg.textContent = '✅ Dados enviados com sucesso!'; msg.style.color = 'var(--verde)'; }
       const el = document.getElementById('sync-status');
       if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
     } else {
-      if (msg) { msg.textContent = '❌ Falha: ' + (res && res.msg ? res.msg : 'erro desconhecido'); msg.style.color = 'var(--vermelho)'; }
+      if (msg) { msg.textContent = '❌ Timeout — tente novamente.'; msg.style.color = 'var(--vermelho)'; }
     }
-  };
-  script.onerror = function() {
-    delete window[cbName];
-    script.remove();
-    if (btn) btn.disabled = false;
-    if (msg) { msg.textContent = '❌ Falha ao enviar. Verifique sua conexão.'; msg.style.color = 'var(--vermelho)'; }
-  };
-  document.head.appendChild(script);
+  });
 }
 
 // ========== LOGIN ==========
