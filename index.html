@@ -10619,58 +10619,72 @@ function _enviarParaSheets() {
   _salvandoRemoto = true;
   _pendenteSalvar = false;
   const el = document.getElementById('sync-status');
-  _postParaSheets(
-    { entradas, saidas, nextId },
-    function(ok) {
-      _salvandoRemoto = false;
-      if (_pendenteSalvar) _enviarParaSheets();
-      if (el) {
-        el.textContent = ok ? '☁️ Salvo' : '⚠️ Erro ao salvar';
-        el.style.color  = ok ? 'var(--verde-claro)' : '#f87171';
-      }
+  _salvarViaChunks({ entradas, saidas, nextId }, function(ok) {
+    _salvandoRemoto = false;
+    if (_pendenteSalvar) _enviarParaSheets();
+    if (el) {
+      el.textContent = ok ? '☁️ Salvo' : '⚠️ Erro ao salvar';
+      el.style.color  = ok ? 'var(--verde-claro)' : '#f87171';
     }
-  );
+  });
 }
 
-// Envia dados via iframe+form (contorna limite de URL e CORS)
-function _postParaSheets(dados, callback) {
-  const iframeId = '_gsIframe_' + Date.now();
-  const formId   = '_gsForm_'   + Date.now();
+// Envia dados em partes via JSONP GET (chunks de 700 bytes para caber na URL)
+function _salvarViaChunks(dados, callback) {
+  const json   = JSON.stringify(dados);
+  const CHUNK  = 700;
+  const total  = Math.ceil(json.length / CHUNK);
+  const sessao = 'S' + Date.now();
+  let   parte  = 0;
+  let   erros  = 0;
 
-  const iframe = document.createElement('iframe');
-  iframe.name = iframeId;
-  iframe.style.display = 'none';
-  document.body.appendChild(iframe);
+  function enviarParte() {
+    const chunk  = json.slice(parte * CHUNK, (parte + 1) * CHUNK);
+    const enc    = encodeURIComponent(chunk);
+    const ultimo = (parte === total - 1) ? '1' : '0';
+    const cbName = '_gsChunk_' + Date.now();
+    const script = document.createElement('script');
 
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = SHEETS_API_URL;
-  form.target = iframeId;
-  form.style.display = 'none';
+    script.src = SHEETS_API_URL
+      + '?action=chunk&callback=' + cbName
+      + '&sessao=' + sessao
+      + '&parte='  + parte
+      + '&total='  + total
+      + '&ultimo=' + ultimo
+      + '&data='   + enc;
 
-  const input = document.createElement('input');
-  input.type  = 'hidden';
-  input.name  = 'payload';
-  input.value = JSON.stringify(dados);
-  form.appendChild(input);
-  document.body.appendChild(form);
+    window[cbName] = function(res) {
+      delete window[cbName];
+      script.remove();
+      if (!res || res.status !== 'ok') {
+        erros++;
+        if (erros > 2) { callback(false); return; }
+        setTimeout(enviarParte, 500); // retry
+        return;
+      }
+      erros = 0;
+      if (ultimo === '1') { callback(true); return; }
+      parte++;
+      setTimeout(enviarParte, 100); // pequena pausa entre chunks
+    };
+    script.onerror = function() {
+      delete window[cbName]; script.remove();
+      erros++;
+      if (erros > 2) { callback(false); return; }
+      setTimeout(enviarParte, 500);
+    };
+    setTimeout(() => {
+      if (window[cbName]) {
+        delete window[cbName]; script.remove();
+        erros++;
+        if (erros > 2) { callback(false); return; }
+        setTimeout(enviarParte, 500);
+      }
+    }, 15000);
+    document.head.appendChild(script);
+  }
 
-  let done = false;
-  iframe.onload = function() {
-    if (done) return;
-    done = true;
-    setTimeout(() => { iframe.remove(); form.remove(); }, 500);
-    if (callback) callback(true);
-  };
-  // Timeout 10s
-  setTimeout(() => {
-    if (done) return;
-    done = true;
-    iframe.remove(); form.remove();
-    if (callback) callback(false);
-  }, 10000);
-
-  form.submit();
+  enviarParte();
 }
 
 function carregarDados() {
@@ -10776,16 +10790,31 @@ function sincronizarForcado() {
     return;
   }
   if (btn) btn.disabled = true;
-  if (msg) { msg.textContent = '⏳ Enviando dados...'; msg.style.color = 'var(--cinza)'; }
 
-  _postParaSheets({ entradas, saidas, nextId }, function(ok) {
+  const totalChunks = Math.ceil(JSON.stringify({ entradas, saidas, nextId }).length / 700);
+  if (msg) { msg.textContent = '⏳ Enviando (0/' + totalChunks + ')...'; msg.style.color = 'var(--cinza)'; }
+
+  // Mostra progresso
+  const origSalvar = window._salvarViaChunks;
+  let parteAtual = 0;
+  const intervalo = setInterval(() => {
+    parteAtual++;
+    if (msg && btn.disabled) {
+      msg.textContent = '⏳ Enviando (' + Math.min(parteAtual, totalChunks) + '/' + totalChunks + ')...';
+    } else {
+      clearInterval(intervalo);
+    }
+  }, 400);
+
+  _salvarViaChunks({ entradas, saidas, nextId }, function(ok) {
+    clearInterval(intervalo);
     if (btn) btn.disabled = false;
     if (ok) {
-      if (msg) { msg.textContent = '✅ Dados enviados com sucesso!'; msg.style.color = 'var(--verde)'; }
+      if (msg) { msg.textContent = '✅ Dados enviados com sucesso! (' + totalChunks + ' partes)'; msg.style.color = 'var(--verde)'; }
       const el = document.getElementById('sync-status');
       if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
     } else {
-      if (msg) { msg.textContent = '❌ Timeout — tente novamente.'; msg.style.color = 'var(--vermelho)'; }
+      if (msg) { msg.textContent = '❌ Falha ao enviar. Tente novamente.'; msg.style.color = 'var(--vermelho)'; }
     }
   });
 }
