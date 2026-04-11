@@ -10629,62 +10629,82 @@ function _enviarParaSheets() {
   });
 }
 
-// Envia dados em partes via JSONP GET (chunks de 700 bytes para caber na URL)
+// Envia dados via JSONP: primeiro armazena chunks, depois dispara o salvamento
 function _salvarViaChunks(dados, callback) {
   const json   = JSON.stringify(dados);
-  const CHUNK  = 700;
+  const CHUNK  = 500; // 500 chars antes de encode = ~700 na URL
   const total  = Math.ceil(json.length / CHUNK);
   const sessao = 'S' + Date.now();
   let   parte  = 0;
   let   erros  = 0;
 
-  function enviarParte() {
-    const chunk  = json.slice(parte * CHUNK, (parte + 1) * CHUNK);
-    const enc    = encodeURIComponent(chunk);
-    const ultimo = (parte === total - 1) ? '1' : '0';
-    const cbName = '_gsChunk_' + Date.now();
+  function jsonp(url, cb, timeout) {
+    const cbName = '_gs_' + Date.now() + '_' + Math.random().toString(36).slice(2);
     const script = document.createElement('script');
-
-    script.src = SHEETS_API_URL
-      + '?action=chunk&callback=' + cbName
-      + '&sessao=' + sessao
-      + '&parte='  + parte
-      + '&total='  + total
-      + '&ultimo=' + ultimo
-      + '&data='   + enc;
-
+    let done = false;
     window[cbName] = function(res) {
-      delete window[cbName];
-      script.remove();
-      if (!res || res.status !== 'ok') {
-        erros++;
-        if (erros > 2) { callback(false); return; }
-        setTimeout(enviarParte, 500); // retry
-        return;
-      }
-      erros = 0;
-      if (ultimo === '1') { callback(true); return; }
-      parte++;
-      setTimeout(enviarParte, 100); // pequena pausa entre chunks
+      if (done) return; done = true;
+      delete window[cbName]; script.remove();
+      cb(res);
     };
     script.onerror = function() {
+      if (done) return; done = true;
       delete window[cbName]; script.remove();
-      erros++;
-      if (erros > 2) { callback(false); return; }
-      setTimeout(enviarParte, 500);
+      cb(null);
     };
     setTimeout(() => {
-      if (window[cbName]) {
-        delete window[cbName]; script.remove();
-        erros++;
-        if (erros > 2) { callback(false); return; }
-        setTimeout(enviarParte, 500);
-      }
-    }, 15000);
+      if (!done) { done = true; delete window[cbName]; script.remove(); cb(null); }
+    }, timeout || 20000);
+    script.src = url + '&callback=' + cbName;
     document.head.appendChild(script);
   }
 
-  enviarParte();
+  function enviarChunk() {
+    const chunk  = json.slice(parte * CHUNK, (parte + 1) * CHUNK);
+    const ultimo = parte === total - 1;
+    const url = SHEETS_API_URL
+      + '?action=chunk'
+      + '&sessao=' + sessao
+      + '&parte='  + parte
+      + '&total='  + total
+      + '&ultimo=' + (ultimo ? '1' : '0')
+      + '&data='   + encodeURIComponent(chunk);
+
+    jsonp(url, function(res) {
+      if (!res || res.status !== 'ok') {
+        erros++;
+        if (erros > 3) { callback(false); return; }
+        setTimeout(enviarChunk, 800);
+        return;
+      }
+      erros = 0;
+      if (ultimo) {
+        // Último chunk enviado — agora pede para montar e salvar
+        setTimeout(function() { dispararSalvar(); }, 500);
+      } else {
+        parte++;
+        setTimeout(enviarChunk, 80);
+      }
+    }, 20000);
+  }
+
+  function dispararSalvar() {
+    const url = SHEETS_API_URL
+      + '?action=salvar_chunks'
+      + '&sessao=' + sessao
+      + '&total='  + total;
+    jsonp(url, function(res) {
+      if (res && res.status === 'ok') {
+        callback(true);
+      } else {
+        erros++;
+        if (erros > 3) { callback(false); return; }
+        setTimeout(dispararSalvar, 1000);
+      }
+    }, 60000); // até 60s para montar e salvar
+  }
+
+  enviarChunk();
 }
 
 function carregarDados() {
