@@ -638,7 +638,7 @@
     </div>
     <div class="saldo-header">
       <div class="label">Saldo Atual</div>
-      <div class="valor" id="saldo-header-val">R$ 14.326,24</div>
+      <div class="valor" id="saldo-header-val">—</div>
       <div id="sync-status" style="font-size:10px;opacity:0.7;margin-top:2px;display:none">⏳ Sincronizando...</div>
     </div>
   </div>
@@ -686,8 +686,8 @@
   <div class="cards-row cols-4" style="margin-bottom:28px">
     <div class="card destaque">
       <div class="card-label">Saldo Poupança</div>
-      <div class="card-valor">R$ 14.326</div>
-      <div class="card-sub">Atualizado em Jan/2026</div>
+      <div class="card-valor" id="dash-saldo">—</div>
+      <div class="card-sub" id="dash-saldo-sub">Calculado a partir dos lançamentos</div>
     </div>
     <div class="card">
       <div class="card-label">Famílias Ativas</div>
@@ -696,13 +696,13 @@
     </div>
     <div class="card">
       <div class="card-label">Total Rendimentos</div>
-      <div class="card-valor" style="color:var(--azul)">R$ 1.843</div>
-      <div class="card-sub">Acumulado desde Jun/2023</div>
+      <div class="card-valor" id="dash-rendimentos" style="color:var(--azul)">—</div>
+      <div class="card-sub">Acumulado desde o início</div>
     </div>
     <div class="card">
       <div class="card-label">Última Saída</div>
-      <div class="card-valor" style="color:var(--vermelho); font-size:24px">R$ 164,00</div>
-      <div class="card-sub">Jan/2026 · Curso Professora</div>
+      <div class="card-valor" id="dash-ultima-saida" style="color:var(--vermelho); font-size:24px">—</div>
+      <div class="card-sub" id="dash-ultima-saida-sub">—</div>
     </div>
   </div>
 
@@ -943,17 +943,17 @@
   <div class="cards-row cols-3" style="margin-bottom:24px">
     <div class="card destaque">
       <div class="card-label">Total Poupança</div>
-      <div class="card-valor">R$ 14.326,24</div>
+      <div class="card-valor" id="check-saldo-total">—</div>
       <div class="card-sub">Saldo acumulado</div>
     </div>
     <div class="card">
       <div class="card-label">Total Rendimentos</div>
-      <div class="card-valor" style="color:var(--azul)">R$ 1.843,41</div>
-      <div class="card-sub">Desde Jun/2023</div>
+      <div class="card-valor" id="check-rendimentos" style="color:var(--azul)">—</div>
+      <div class="card-sub">Desde o início</div>
     </div>
     <div class="card">
       <div class="card-label">Saldo Despesas Sala</div>
-      <div class="card-valor" style="color:var(--vermelho)">-R$ 694,38</div>
+      <div class="card-valor" id="check-despesas-sala" style="color:var(--vermelho)">—</div>
       <div class="card-sub">Entradas - Saídas despesas</div>
     </div>
   </div>
@@ -2588,35 +2588,71 @@ function renderUltimosLancamentos() {
 }
 
 function initDashCharts() {
-  // Famílias ativas (dinâmico)
-  const nAtivas = familiasData.filter(f => f.ativo).length;
-  const elAtivas = document.getElementById('dash-familias-ativas');
-  if (elAtivas) elAtivas.textContent = nAtivas;
-
-  // Últimos lançamentos dinâmicos
-  renderUltimosLancamentos();
-
-  // Calcula totais reais por categoria a partir dos dados
+  // ── Calcular totais reais a partir dos arrays entradas/saidas ──
+  const saldoAtual  = getSaldoAtual();
   const totais = { contrib: 0, rendimento: 0, acoes: 0, passeio: 0, outros: 0 };
+
   entradas.forEach(e => {
+    const v = Number(e.valor) || 0;
     const k = normalizarEntrada(e.contribuicao);
     const f = familiasData.find(x => x.nome === e.contribuicao);
-    if (f) totais.contrib += e.valor || 0;
-    else if (k === 'Rendimento') totais.rendimento += e.valor || 0;
-    else if (k === 'Passeio - Entrada') totais.passeio += e.valor || 0;
-    else if (k === 'Ação Arrecadação') totais.acoes += e.valor || 0;
-    else totais.outros += e.valor || 0;
+    if (f && f.ativo)              totais.contrib    += v;
+    else if (k === 'Rendimento')   totais.rendimento += v;
+    else if (k === 'Passeio - Entrada') totais.passeio += v;
+    else if (k === 'Ação Arrecadação')  totais.acoes   += v;
+    else                           totais.outros     += v;
   });
+
   const totalGeral = Object.values(totais).reduce((a,b) => a+b, 0);
   const pct = v => totalGeral > 0 ? ' (' + (v/totalGeral*100).toFixed(1) + '%)' : '';
 
-  // Atualiza cards do dashboard com valores reais e centavos
-  const saldoAtual = getSaldoAtual();
-  const totalRend = totais.rendimento;
-  document.querySelectorAll('.card-valor').forEach(el => {
-    if (el.textContent.trim() === 'R$ 14.326') el.textContent = fmt(saldoAtual);
-    if (el.textContent.trim() === 'R$ 1.843') el.textContent = fmt(totalRend);
-  });
+  // ── Última saída ──
+  const ultimaSaida = saidas.length > 0
+    ? saidas.slice().sort((a,b) => (b.data||'') > (a.data||'') ? 1 : -1)[0]
+    : null;
+
+  // ── Saldo Despesas da Sala ──
+  const entDespesas = entradas.filter(e => normalizarEntrada(e.contribuicao) === 'Despesas da sala')
+                               .reduce((s,e) => s + (Number(e.valor)||0), 0);
+  const saiDespesas = saidas.filter(s => normalizarSaida(s.cat, s.desc) === 'Despesas da sala')
+                              .reduce((s,e) => s + (Number(e.valor)||0), 0);
+  const saldoDespesas = entDespesas - saiDespesas;
+
+  // ── Atualizar cards do Dashboard ──
+  const setEl = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+
+  setEl('dash-saldo',        fmt(saldoAtual));
+  setEl('dash-rendimentos',  fmt(totais.rendimento));
+  setEl('dash-familias-ativas', familiasData.filter(f => f.ativo).length);
+
+  // Última saída
+  if (ultimaSaida) {
+    setEl('dash-ultima-saida', fmt(ultimaSaida.valor));
+    const mesRef = ultimaSaida.ref ? fmtMes(ultimaSaida.ref) : fmtData(ultimaSaida.data);
+    setEl('dash-ultima-saida-sub', mesRef + ' · ' + (ultimaSaida.desc || '').slice(0,30));
+  } else {
+    setEl('dash-ultima-saida', '—');
+    setEl('dash-ultima-saida-sub', 'Nenhuma saída registrada');
+  }
+
+  // Data de atualização
+  const sub = document.getElementById('dash-saldo-sub');
+  if (sub && entradas.length > 0) {
+    const ultimaEnt = entradas.slice().sort((a,b) => (b.ref||b.data||'') > (a.ref||a.data||'') ? 1 : -1)[0];
+    sub.textContent = 'Atualizado em ' + fmtMes(ultimaEnt.ref || ultimaEnt.data);
+  }
+
+  // ── Atualizar cards do Check Mensal ──
+  setEl('check-saldo-total',    fmt(saldoAtual));
+  setEl('check-rendimentos',    fmt(totais.rendimento));
+  const elDesp = document.getElementById('check-despesas-sala');
+  if (elDesp) {
+    elDesp.textContent = (saldoDespesas >= 0 ? '' : '-') + fmt(Math.abs(saldoDespesas));
+    elDesp.style.color = saldoDespesas >= 0 ? 'var(--verde)' : 'var(--vermelho)';
+  }
+
+  // ── Últimos lançamentos ──
+  renderUltimosLancamentos();
 
   const ctx1 = document.getElementById('chartSaldo').getContext('2d');
   const dadosCaixa = calcularCaixa();
@@ -3509,7 +3545,49 @@ function trocarSenhaConfig() {
   document.getElementById('cfg-senha-nova').value  = '';
 }
 
-// ── Testar conexão ───────────────────────────────────────────
+// ── Limpar dados ─────────────────────────────────────────────
+function limparDados(tipo) {
+  const msgs = {
+    entradas: 'Apagar TODOS os lançamentos de entradas?\nIsso também apaga no Google Sheets.',
+    saidas:   'Apagar TODOS os lançamentos de saídas?\nIsso também apaga no Google Sheets.',
+    familias: 'Remover TODAS as famílias cadastradas?',
+    tudo:     'Apagar TUDO (entradas, saídas e famílias)?\nEsta ação é IRREVERSÍVEL.'
+  };
+  if (!confirm(msgs[tipo])) return;
+
+  if (tipo === 'entradas' || tipo === 'tudo') { entradas = []; renderEntradas(); }
+  if (tipo === 'saidas'   || tipo === 'tudo') { saidas   = []; renderSaidas(); }
+  if (tipo === 'familias' || tipo === 'tudo') {
+    familiasData = [];
+    if (typeof renderListaFamilias === 'function') renderListaFamilias();
+    if (typeof renderContrib       === 'function') renderContrib();
+    if (typeof atualizarSelectsFamilias === 'function') atualizarSelectsFamilias();
+  }
+
+  initDashCharts();
+  atualizarSaldoHeader();
+  toast('🗑️ Dados apagados localmente.', 'err');
+
+  // Sincroniza com Google Sheets
+  const url = getSheetsUrl();
+  if (!url) return;
+  const cbName = '_gsLimpar_' + Date.now();
+  const script = document.createElement('script');
+  const timer  = setTimeout(() => { delete window[cbName]; script.remove(); }, 15000);
+  window[cbName] = function(res) {
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    setSyncStatus(
+      res && res.status === 'ok' ? '☁️ Dados apagados no Sheets' : '⚠️ Apagado local, erro no Sheets',
+      res && res.status === 'ok' ? 'var(--verde-claro)' : '#fbbf24'
+    );
+  };
+  script.onerror = function() { clearTimeout(timer); delete window[cbName]; script.remove(); };
+  script.src = url + '?action=limpar_dados&tipo=' + encodeURIComponent(tipo)
+             + '&callback=' + cbName + '&t=' + Date.now();
+  document.head.appendChild(script);
+}
+
+// ── Testar conexão ─────────────────────────────────────────────
 function testarConexao() {
   const msg = document.getElementById('sync-forcado-msg');
   if (msg) { msg.textContent = '⏳ Testando...'; msg.style.color = '#94a3b8'; }
