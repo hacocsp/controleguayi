@@ -10753,17 +10753,26 @@ function carregarDados() {
 }
 
 // ── SALVAR ENTRADA ────────────────────────────────────────────
-function salvarEntradaRemota(entrada, onSuccess, onError) {
+// ── Função base JSONP para escrita (GET com callback — sem CORS) ──
+function _jsonpWrite(params, statusMsg, onSuccess, onError) {
   const url = getSheetsUrl();
   if (!url) { if (onSuccess) onSuccess(); return; }
-  setSyncStatus('⏳ Salvando...', '#94a3b8');
-  fetch(url, {
-    method: 'POST', mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'add_entrada', data: entrada })
-  })
-  .then(r => r.json())
-  .then(res => {
+  setSyncStatus(statusMsg, '#94a3b8');
+
+  const cbName = '_gsW_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  const script = document.createElement('script');
+  let done = false;
+
+  const timer = setTimeout(() => {
+    if (done) return; done = true;
+    delete window[cbName]; script.remove();
+    setSyncStatus('⚠️ Timeout ao salvar', '#fbbf24');
+    if (onError) onError('timeout');
+  }, 20000);
+
+  window[cbName] = function(res) {
+    if (done) return; done = true;
+    clearTimeout(timer); delete window[cbName]; script.remove();
     if (res && res.status === 'ok') {
       setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
       if (onSuccess) onSuccess();
@@ -10771,83 +10780,56 @@ function salvarEntradaRemota(entrada, onSuccess, onError) {
       setSyncStatus('⚠️ Erro ao salvar', '#f87171');
       if (onError) onError(res && res.msg);
     }
-  })
-  .catch(err => {
+  };
+
+  script.onerror = function() {
+    if (done) return; done = true;
+    clearTimeout(timer); delete window[cbName]; script.remove();
     setSyncStatus('⚠️ Sem conexão', '#fbbf24');
-    if (onError) onError(err.message);
-  });
+    if (onError) onError('network error');
+  };
+
+  // Monta URL com todos os parâmetros + callback
+  const qs = Object.entries(params)
+    .map(([k, v]) => k + '=' + encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v))
+    .join('&');
+  script.src = url + '?' + qs + '&callback=' + cbName + '&t=' + Date.now();
+  document.head.appendChild(script);
+}
+
+function salvarEntradaRemota(entrada, onSuccess, onError) {
+  _jsonpWrite(
+    { action: 'add_entrada', data: JSON.stringify(entrada) },
+    '⏳ Salvando entrada...',
+    onSuccess, onError
+  );
 }
 
 // ── SALVAR SAÍDA ──────────────────────────────────────────────
 function salvarSaidaRemota(saida, onSuccess, onError) {
-  const url = getSheetsUrl();
-  if (!url) { if (onSuccess) onSuccess(); return; }
-  setSyncStatus('⏳ Salvando...', '#94a3b8');
-  fetch(url, {
-    method: 'POST', mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'add_saida', data: saida })
-  })
-  .then(r => r.json())
-  .then(res => {
-    if (res && res.status === 'ok') {
-      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
-      if (onSuccess) onSuccess();
-    } else {
-      setSyncStatus('⚠️ Erro ao salvar', '#f87171');
-      if (onError) onError(res && res.msg);
-    }
-  })
-  .catch(err => {
-    setSyncStatus('⚠️ Sem conexão', '#fbbf24');
-    if (onError) onError(err.message);
-  });
+  _jsonpWrite(
+    { action: 'add_saida', data: JSON.stringify(saida) },
+    '⏳ Salvando saída...',
+    onSuccess, onError
+  );
 }
 
 // ── EDITAR REGISTRO ───────────────────────────────────────────
 function editarRemoto(tipo, item, onSuccess, onError) {
-  const url = getSheetsUrl();
-  if (!url) { if (onSuccess) onSuccess(); return; }
-  setSyncStatus('⏳ Salvando edição...', '#94a3b8');
-  fetch(url, {
-    method: 'POST', mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'editar_' + tipo, data: item })
-  })
-  .then(r => r.json())
-  .then(res => {
-    if (res && res.status === 'ok') {
-      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
-      if (onSuccess) onSuccess();
-    } else {
-      setSyncStatus('⚠️ Erro ao editar', '#f87171');
-      if (onError) onError(res && res.msg);
-    }
-  })
-  .catch(err => { setSyncStatus('⚠️ Sem conexão', '#fbbf24'); if (onError) onError(err.message); });
+  _jsonpWrite(
+    { action: 'editar_' + tipo, data: JSON.stringify(item) },
+    '⏳ Salvando edição...',
+    onSuccess, onError
+  );
 }
 
 // ── EXCLUIR REGISTRO ──────────────────────────────────────────
 function excluirRemoto(tipo, id, onSuccess, onError) {
-  const url = getSheetsUrl();
-  if (!url) { if (onSuccess) onSuccess(); return; }
-  setSyncStatus('⏳ Excluindo...', '#94a3b8');
-  fetch(url, {
-    method: 'POST', mode: 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'excluir_' + tipo, id: id })
-  })
-  .then(r => r.json())
-  .then(res => {
-    if (res && res.status === 'ok') {
-      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
-      if (onSuccess) onSuccess();
-    } else {
-      setSyncStatus('⚠️ Erro ao excluir', '#f87171');
-      if (onError) onError(res && res.msg);
-    }
-  })
-  .catch(err => { setSyncStatus('⚠️ Sem conexão', '#fbbf24'); if (onError) onError(err.message); });
+  _jsonpWrite(
+    { action: 'excluir_' + tipo, id: id },
+    '⏳ Excluindo...',
+    onSuccess, onError
+  );
 }
 
 // salvarDados() — mantido por compatibilidade, não faz nada (persistência é por operação)
