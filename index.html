@@ -1297,15 +1297,16 @@
 <div id="tab-importacao" class="tab-panel">
   <div class="sec-title">📂 Importar Dados · Entradas e Saídas</div>
 
-  <!-- SINCRONIZAÇÃO FORÇADA -->
+  <!-- STATUS DA CONEXÃO -->
   <div class="form-card" style="margin-bottom:20px;border:1.5px solid var(--verde-claro)">
-    <h3 style="margin:0 0 8px;color:var(--verde);font-size:15px">☁️ Sincronizar dados locais com Google Sheets</h3>
+    <h3 style="margin:0 0 8px;color:var(--verde);font-size:15px">☁️ Dados salvos automaticamente no Google Sheets</h3>
     <p style="font-size:13px;color:var(--cinza);margin:0 0 14px;line-height:1.6">
-      Use este botão para enviar todos os dados do seu navegador para o Google Sheets.
-      Útil na primeira vez que acessa em dispositivo novo, ou para forçar uma sincronização completa.
+      Cada lançamento é salvo diretamente no Google Sheets no momento do cadastro.
+      Use os botões abaixo para recarregar os dados ou verificar a conexão.
     </p>
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <button class="btn btn-primary" onclick="sincronizarForcado()" id="btn-sync-forcado">☁️ Enviar dados locais para o Sheets</button>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="carregarDados()">🔄 Recarregar dados do Sheets</button>
+      <button class="btn btn-secondary" onclick="testarConexao()">🔗 Testar conexão</button>
       <span id="sync-forcado-msg" style="font-size:13px;color:var(--cinza)"></span>
     </div>
   </div>
@@ -10890,6 +10891,38 @@ function trocarSenhaConfig() {
   toast('✅ Senha alterada com sucesso!');
   document.getElementById('cfg-senha-atual').value = '';
   document.getElementById('cfg-senha-nova').value  = '';
+}
+
+// ── Testar conexão ───────────────────────────────────────────
+function testarConexao() {
+  const msg = document.getElementById('sync-forcado-msg');
+  if (msg) { msg.textContent = '⏳ Testando...'; msg.style.color = '#94a3b8'; }
+  const url = getSheetsUrl();
+  if (!url) {
+    if (msg) { msg.textContent = '❌ URL não configurada — veja aba ⚙️ Configuração'; msg.style.color = '#B91C1C'; }
+    return;
+  }
+  const cbName = '_pingTest_' + Date.now();
+  const script = document.createElement('script');
+  const timer = setTimeout(() => {
+    if (!window[cbName]) return;
+    delete window[cbName]; script.remove();
+    if (msg) { msg.textContent = '❌ Timeout — reimplante o Apps Script'; msg.style.color = '#B91C1C'; }
+  }, 10000);
+  window[cbName] = function(res) {
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    if (res && res.status === 'ok') {
+      if (msg) { msg.textContent = '✅ Conexão OK — ' + (res.msg || 'API ativa'); msg.style.color = 'var(--verde)'; }
+    } else {
+      if (msg) { msg.textContent = '❌ Erro: ' + (res && res.msg || 'sem resposta'); msg.style.color = '#B91C1C'; }
+    }
+  };
+  script.onerror = function() {
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    if (msg) { msg.textContent = '❌ Erro de rede — verifique a URL'; msg.style.color = '#B91C1C'; }
+  };
+  script.src = url + '?action=ping&callback=' + cbName + '&t=' + Date.now();
+  document.head.appendChild(script);
 }
 
 // ══════════════════════════════════════════════════════════════
