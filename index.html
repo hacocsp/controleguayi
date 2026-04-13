@@ -673,6 +673,9 @@
     <button class="tab-btn" onclick="showTab('importacao')" data-tab="importacao">
       <span class="icon">📂</span> Importar
     </button>
+    <button class="tab-btn" onclick="showTab('configuracao')" data-tab="configuracao">
+      <span class="icon">⚙️</span> Configuração
+    </button>
   </div>
 </nav>
 
@@ -1402,6 +1405,58 @@
           <tr><td colspan="4"><div class="empty-state" style="padding:24px"><p>Nenhuma importação realizada ainda nesta sessão.</p></div></td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- =========== CONFIGURAÇÃO =========== -->
+<div id="tab-configuracao" class="tab-panel" style="display:none">
+  <div class="sec-title">⚙️ Configuração · Conexão com Google Sheets</div>
+
+  <div class="form-card" style="margin-bottom:20px;border:1.5px solid var(--verde-claro)">
+    <h3 style="margin:0 0 12px;color:var(--verde);font-size:15px">🔗 URL do Apps Script</h3>
+    <p style="font-size:13px;color:var(--cinza);margin:0 0 14px;line-height:1.6">
+      Cole abaixo a URL gerada ao implantar o arquivo <strong>poupanca_script_final.gs</strong>.
+      O portal carregará e salvará dados diretamente no Google Sheets, sem armazenamento local.
+    </p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+      <div style="flex:1;min-width:280px">
+        <label style="font-size:11px;font-weight:600;color:var(--cinza);display:block;margin-bottom:5px">URL do Apps Script (termina em /exec)</label>
+        <input type="url" id="cfg-api-url" placeholder="https://script.google.com/macros/s/.../exec"
+               style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-claro);border-radius:8px;font-size:14px">
+      </div>
+      <button class="btn btn-primary" onclick="salvarConfigUrl()">💾 Salvar & Testar</button>
+      <button class="btn btn-secondary" onclick="recarregarDados()">🔄 Recarregar</button>
+    </div>
+    <div id="cfg-status" style="font-size:13px;font-weight:500;padding:8px 12px;border-radius:6px;display:none"></div>
+  </div>
+
+  <div class="form-card" style="margin-bottom:20px">
+    <h3 style="margin:0 0 12px;color:var(--verde);font-size:15px">📋 Passo a passo</h3>
+    <ol style="font-size:13px;color:#374151;line-height:2.2;padding-left:20px">
+      <li>Acesse <strong>script.google.com</strong> → <strong>Novo projeto</strong></li>
+      <li>Apague o código existente → cole o conteúdo do <strong>poupanca_script_final.gs</strong> → salve</li>
+      <li>Clique em <strong>Implantar → Novo deployment → App da Web</strong></li>
+      <li>Executar como: <strong>Eu</strong> · Quem acessa: <strong>Qualquer pessoa</strong></li>
+      <li>Clique <strong>Implantar</strong> → autorize → copie a URL gerada</li>
+      <li>Cole a URL acima e clique em <strong>Salvar & Testar</strong></li>
+    </ol>
+  </div>
+
+  <div class="form-card">
+    <h3 style="margin:0 0 12px;color:var(--verde);font-size:15px">🔑 Alterar Senha</h3>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label style="font-size:11px;font-weight:600;color:var(--cinza);display:block;margin-bottom:5px">Senha Atual</label>
+        <input type="password" id="cfg-senha-atual" placeholder="Senha atual"
+               style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-claro);border-radius:8px;font-size:14px">
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label style="font-size:11px;font-weight:600;color:var(--cinza);display:block;margin-bottom:5px">Nova Senha</label>
+        <input type="password" id="cfg-senha-nova" placeholder="Mínimo 6 caracteres"
+               style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-claro);border-radius:8px;font-size:14px">
+      </div>
+      <button class="btn btn-secondary" onclick="trocarSenhaConfig()">Trocar Senha</button>
     </div>
   </div>
 </div>
@@ -8956,6 +9011,12 @@ function showTab(tab) {
   if (tab === 'saida') renderSaidas();
   if (tab === 'check') { renderCheck(); renderCheckFull(); }
   if (tab === 'cadastros') { renderListaFamilias(); renderListaTipos(); }
+  // Preenche URL salva na aba config
+  if (tab === 'configuracao') {
+    const url = localStorage.getItem('guayi_api_url') || '';
+    const el = document.getElementById('cfg-api-url');
+    if (el && url) el.value = url;
+  }
 }
 
 // ========== TOAST ==========
@@ -9122,11 +9183,29 @@ function adicionarEntrada() {
   if (!fam || !data || !valor || !ref) { toast('Preencha todos os campos obrigatórios.', 'err'); return; }
   const contrib = contribuicoes[fam] || 0;
   const statusVal = contrib === 0 ? 'OK' : (Math.abs(valor - contrib) < 0.01 ? 'OK' : valor > contrib ? 'Maior' : 'Menor');
-  entradas.push({ id: nextId++, contribuicao: fam, data, valor, ref, obs, status: statusVal });
-  limparFormulario('entrada');
-  renderEntradas();
-  atualizarSaldoHeader();
-  toast('✅ Entrada registrada com sucesso!');
+  const nova = { id: nextId++, contribuicao: fam, data, valor, ref, obs, status: statusVal };
+
+  // Desabilita botão para evitar duplo clique
+  const btn = document.querySelector('[onclick="adicionarEntrada()"]');
+  if (btn) btn.disabled = true;
+
+  salvarEntradaRemota(nova,
+    function() {
+      // Sucesso — adiciona localmente e atualiza UI
+      entradas.push(nova);
+      limparFormulario('entrada');
+      renderEntradas();
+      atualizarSaldoHeader();
+      toast('✅ Entrada registrada com sucesso!');
+      if (btn) btn.disabled = false;
+    },
+    function(msg) {
+      // Falha — não adiciona localmente, avisa usuário
+      nextId--; // desfaz o incremento
+      toast('❌ Erro ao salvar: ' + (msg || 'verifique sua conexão'), 'err');
+      if (btn) btn.disabled = false;
+    }
+  );
 }
 
 // ========== SAÍDAS ==========
@@ -9174,13 +9253,27 @@ function adicionarSaida() {
   const ref = document.getElementById('out-ref').value;
   const obs = document.getElementById('out-obs').value;
   if (!desc || !data || !valor || !ref) { toast('Preencha todos os campos obrigatórios.', 'err'); return; }
-  // Categoria derivada automaticamente da descrição
   const cat = normalizarSaida('', desc);
-  saidas.push({ id: nextId++, desc, cat, data, valor, ref, obs, turma });
-  limparFormulario('saida');
-  renderSaidas();
-  atualizarSaldoHeader();
-  toast('✅ Saída registrada com sucesso!');
+  const nova = { id: nextId++, desc, cat, data, valor, ref, obs, turma };
+
+  const btn = document.querySelector('[onclick="adicionarSaida()"]');
+  if (btn) btn.disabled = true;
+
+  salvarSaidaRemota(nova,
+    function() {
+      saidas.push(nova);
+      limparFormulario('saida');
+      renderSaidas();
+      atualizarSaldoHeader();
+      toast('✅ Saída registrada com sucesso!');
+      if (btn) btn.disabled = false;
+    },
+    function(msg) {
+      nextId--;
+      toast('❌ Erro ao salvar: ' + (msg || 'verifique sua conexão'), 'err');
+      if (btn) btn.disabled = false;
+    }
+  );
 }
 
 // ========== CHECK MENSAL ==========
@@ -9655,25 +9748,57 @@ function salvarEdicao() {
   const valor = parseFloat(valorStr);
   const obs = document.getElementById('modal-obs').value;
   if (isNaN(valor) || valor <= 0) { toast('Informe um valor válido.', 'err'); return; }
-  if (editType === 'entrada') {
-    const idx = entradas.findIndex(e => String(e.id) === String(editId));
-    if (idx >= 0) { entradas[idx].data = data; entradas[idx].valor = valor; entradas[idx].obs = obs; renderEntradas(); }
+
+  const tipo = editType;
+  const id   = editId;
+  let itemAtualizado = null;
+
+  if (tipo === 'entrada') {
+    const idx = entradas.findIndex(e => String(e.id) === String(id));
+    if (idx >= 0) {
+      entradas[idx].data = data; entradas[idx].valor = valor; entradas[idx].obs = obs;
+      itemAtualizado = entradas[idx];
+    }
   } else {
-    const idx = saidas.findIndex(s => String(s.id) === String(editId));
-    if (idx >= 0) { saidas[idx].data = data; saidas[idx].valor = valor; saidas[idx].obs = obs; renderSaidas(); }
+    const idx = saidas.findIndex(s => String(s.id) === String(id));
+    if (idx >= 0) {
+      saidas[idx].data = data; saidas[idx].valor = valor; saidas[idx].obs = obs;
+      itemAtualizado = saidas[idx];
+    }
   }
+
   fecharModal();
+  tipo === 'entrada' ? renderEntradas() : renderSaidas();
   atualizarSaldoHeader();
   toast('✅ Lançamento atualizado!');
+
+  // Persiste remotamente (não bloqueia UI)
+  if (itemAtualizado) {
+    editarRemoto(tipo, itemAtualizado,
+      function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); },
+      function(msg) { setSyncStatus('⚠️ Edição não sincronizada', '#f87171'); }
+    );
+  }
 }
+
 function excluirLancamento() {
   if (!confirm('Confirmar exclusão?')) return;
-  if (editType === 'entrada') entradas = entradas.filter(e => String(e.id) !== String(editId));
-  else saidas = saidas.filter(s => String(s.id) !== String(editId));
-  editType === 'entrada' ? renderEntradas() : renderSaidas();
+  const tipo = editType;
+  const id   = editId;
+
+  if (tipo === 'entrada') entradas = entradas.filter(e => String(e.id) !== String(id));
+  else saidas = saidas.filter(s => String(s.id) !== String(id));
+
+  tipo === 'entrada' ? renderEntradas() : renderSaidas();
   fecharModal();
   atualizarSaldoHeader();
   toast('🗑️ Lançamento excluído.');
+
+  // Persiste remotamente
+  excluirRemoto(tipo, id,
+    function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); },
+    function(msg) { setSyncStatus('⚠️ Exclusão não sincronizada', '#f87171'); }
+  );
 }
 
 // ========== MÊS DE REFERÊNCIA AUTOMÁTICO ==========
@@ -10558,290 +10683,237 @@ function baixarModelo() {
 </script>
 <script>
 
-// ========== CONFIGURAÇÕES ==========
-function salvarConfiguracoes() {
-  const titulo = document.getElementById('cfg-titulo').value.trim() || 'Poupança da Sala';
-  const subtitulo = document.getElementById('cfg-subtitulo').value.trim() || 'Escola Waldorf Guayi · 3º Ano';
-  const h1 = document.getElementById('header-titulo');
-  const p = document.getElementById('header-subtitulo');
-  if (h1) h1.textContent = titulo;
-  if (p) p.textContent = subtitulo;
-  document.title = titulo + ' · ' + subtitulo.split('·')[0].trim();
-  toast('✅ Título atualizado!');
+// ══════════════════════════════════════════════════════════════
+// SINCRONIZAÇÃO — GOOGLE SHEETS
+// Dados carregados sempre do Sheets. Zero localStorage para dados.
+// ══════════════════════════════════════════════════════════════
+
+// ── Getter dinâmico da URL ────────────────────────────────────
+function getSheetsUrl() {
+  return window._sheetsUrl || localStorage.getItem('guayi_api_url') || 'https://script.google.com/macros/s/AKfycbyDMaBm7xHZNaSvsMarHuY5zXG0a13w-Og2mda_rnxL6fMv4CdQFnqEK5eo6NHPABJ7/exec';
 }
 
-
-function limparDados(tipo) {
-  const msgs = {
-    entradas: 'Tem certeza que deseja apagar TODOS os lançamentos de entradas?',
-    saidas:   'Tem certeza que deseja apagar TODOS os lançamentos de saídas?',
-    familias: 'Tem certeza que deseja remover TODAS as famílias cadastradas?',
-    tudo:     'Tem certeza que deseja apagar TUDO (entradas, saídas e famílias)? Esta ação é IRREVERSÍVEL.'
-  };
-  if (!confirm(msgs[tipo])) return;
-  if (tipo === 'entradas' || tipo === 'tudo') { entradas = []; renderEntradas(); }
-  if (tipo === 'saidas'   || tipo === 'tudo') { saidas = [];   renderSaidas(); }
-  if (tipo === 'familias' || tipo === 'tudo') {
-    familiasData = [];
-    renderListaFamilias();
-    renderContrib();
-    atualizarSelectsFamilias();
-  }
-  atualizarSaldoHeader();
-  toast(`🗑️ ${tipo === 'tudo' ? 'Todos os dados foram' : 'Dados de ' + tipo + ' foram'} apagados.`, 'err');
-}
-
-// ========== PERSISTÊNCIA LOCAL ==========
-// ========== GOOGLE SHEETS — CONFIGURAÇÃO ==========
-// Cole aqui a URL do seu Google Apps Script após publicar (veja o guia)
-const SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbySeywOq8yC8lKsuuJuS3H4ng4CdO0Ki_8Gj3p2V9v3P2APSFC5jciv1UIikKg6TrBF/exec';  // Ex: 'https://script.google.com/macros/s/ABC123.../exec'
-
-// ========== PERSISTÊNCIA (Google Sheets + localStorage como fallback) ==========
-
-let _salvandoRemoto = false;
-let _pendenteSalvar = false;
-
-function salvarDados() {
-  // Sempre salva no localStorage como backup local imediato
-  try {
-    localStorage.setItem('poupanca_guayi_entradas', JSON.stringify(entradas));
-    localStorage.setItem('poupanca_guayi_saidas',   JSON.stringify(saidas));
-    localStorage.setItem('poupanca_guayi_nextid',   String(nextId));
-  } catch(e) {}
-
-  // Sincroniza com Google Sheets se configurado
-  if (!SHEETS_API_URL) return;
-  if (_salvandoRemoto) { _pendenteSalvar = true; return; }
-  _enviarParaSheets();
-}
-
-function _enviarParaSheets() {
-  _salvandoRemoto = true;
-  _pendenteSalvar = false;
+// ── Indicador de status ───────────────────────────────────────
+function setSyncStatus(txt, cor) {
   const el = document.getElementById('sync-status');
-  _salvarViaChunks({ entradas, saidas, nextId }, function(ok) {
-    _salvandoRemoto = false;
-    if (_pendenteSalvar) _enviarParaSheets();
-    if (el) {
-      el.textContent = ok ? '☁️ Salvo' : '⚠️ Erro ao salvar';
-      el.style.color  = ok ? 'var(--verde-claro)' : '#f87171';
-    }
-  });
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent   = txt;
+  el.style.color   = cor || 'var(--verde-claro)';
 }
 
-// Envia dados via JSONP: primeiro armazena chunks, depois dispara o salvamento
-function _salvarViaChunks(dados, callback) {
-  const json   = JSON.stringify(dados);
-  const CHUNK  = 500; // 500 chars antes de encode = ~700 na URL
-  const total  = Math.ceil(json.length / CHUNK);
-  const sessao = 'S' + Date.now();
-  let   parte  = 0;
-  let   erros  = 0;
-
-  function jsonp(url, cb, timeout) {
-    const cbName = '_gs_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const script = document.createElement('script');
-    let done = false;
-    window[cbName] = function(res) {
-      if (done) return; done = true;
-      delete window[cbName]; script.remove();
-      cb(res);
-    };
-    script.onerror = function() {
-      if (done) return; done = true;
-      delete window[cbName]; script.remove();
-      cb(null);
-    };
-    setTimeout(() => {
-      if (!done) { done = true; delete window[cbName]; script.remove(); cb(null); }
-    }, timeout || 20000);
-    script.src = url + '&callback=' + cbName;
-    document.head.appendChild(script);
-  }
-
-  function enviarChunk() {
-    const chunk  = json.slice(parte * CHUNK, (parte + 1) * CHUNK);
-    const ultimo = parte === total - 1;
-    const url = SHEETS_API_URL
-      + '?action=chunk'
-      + '&sessao=' + sessao
-      + '&parte='  + parte
-      + '&total='  + total
-      + '&ultimo=' + (ultimo ? '1' : '0')
-      + '&data='   + encodeURIComponent(chunk);
-
-    jsonp(url, function(res) {
-      if (!res || res.status !== 'ok') {
-        erros++;
-        if (erros > 3) { callback(false); return; }
-        setTimeout(enviarChunk, 800);
-        return;
-      }
-      erros = 0;
-      if (ultimo) {
-        // Último chunk enviado — agora pede para montar e salvar
-        setTimeout(function() { dispararSalvar(); }, 500);
-      } else {
-        parte++;
-        setTimeout(enviarChunk, 80);
-      }
-    }, 20000);
-  }
-
-  function dispararSalvar() {
-    const url = SHEETS_API_URL
-      + '?action=salvar_chunks'
-      + '&sessao=' + sessao
-      + '&total='  + total;
-    jsonp(url, function(res) {
-      if (res && res.status === 'ok') {
-        callback(true);
-      } else {
-        erros++;
-        if (erros > 3) { callback(false); return; }
-        setTimeout(dispararSalvar, 1000);
-      }
-    }, 60000); // até 60s para montar e salvar
-  }
-
-  enviarChunk();
-}
-
+// ── CARREGAR — GET via JSONP ──────────────────────────────────
 function carregarDados() {
-  // Carrega localStorage imediatamente (render inicial rápido)
-  try {
-    const ent = localStorage.getItem('poupanca_guayi_entradas');
-    const sai = localStorage.getItem('poupanca_guayi_saidas');
-    const nid = localStorage.getItem('poupanca_guayi_nextid');
-    if (ent) { const p = JSON.parse(ent); if (Array.isArray(p) && p.length) entradas = p; }
-    if (sai) { const p = JSON.parse(sai); if (Array.isArray(p) && p.length) saidas   = p; }
-    if (nid) { const n = parseInt(nid); if (!isNaN(n) && n > nextId) nextId = n; }
-  } catch(e) {}
+  const url = getSheetsUrl();
+  if (!url) {
+    setSyncStatus('⚙️ Configure o Sheets na aba Configuração', '#fbbf24');
+    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
+    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
+    return;
+  }
 
-  if (!SHEETS_API_URL) return;
+  setSyncStatus('⏳ Carregando dados...', '#94a3b8');
 
-  const el = document.getElementById('sync-status');
-  if (el) { el.style.display = 'block'; el.textContent = '⏳ Sincronizando...'; el.style.color = '#94a3b8'; }
-
-  // Usa script tag (JSONP-like) para contornar CORS no GET
-  const cbName = '_gsCallback_' + Date.now();
+  const cbName = '_gsLoad_' + Date.now();
   const script = document.createElement('script');
-  script.src = SHEETS_API_URL + '?action=carregar&callback=' + cbName;
+  const timer  = setTimeout(() => {
+    if (!window[cbName]) return;
+    delete window[cbName]; script.remove();
+    setSyncStatus('⚠️ Timeout — sem resposta do servidor', '#fbbf24');
+    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
+    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
+  }, 15000);
 
   window[cbName] = function(res) {
-    delete window[cbName];
-    script.remove();
+    clearTimeout(timer);
+    delete window[cbName]; script.remove();
     if (res && res.status === 'ok' && res.data) {
       const d = res.data;
-      if (Array.isArray(d.entradas) && d.entradas.length) entradas = d.entradas;
-      if (Array.isArray(d.saidas)   && d.saidas.length)   saidas   = d.saidas;
-      if (d.nextId && parseInt(d.nextId) > nextId) nextId = parseInt(d.nextId);
-      try {
-        localStorage.setItem('poupanca_guayi_entradas', JSON.stringify(entradas));
-        localStorage.setItem('poupanca_guayi_saidas',   JSON.stringify(saidas));
-        localStorage.setItem('poupanca_guayi_nextid',   String(nextId));
-      } catch(e) {}
-      if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
+      entradas = Array.isArray(d.entradas) ? d.entradas : [];
+      saidas   = Array.isArray(d.saidas)   ? d.saidas   : [];
+      const maxId = Math.max(0, ...entradas.map(e => Number(e.id)||0), ...saidas.map(s => Number(s.id)||0));
+      nextId = maxId + 1;
+      setSyncStatus('☁️ Sincronizado · ' + entradas.length + ' lançamentos', 'var(--verde-claro)');
     } else {
-      if (el) { el.textContent = '⚠️ Offline — dados locais'; el.style.color = '#fbbf24'; }
+      setSyncStatus('⚠️ Erro: ' + (res && res.msg || 'sem resposta'), '#f87171');
     }
-    initDashCharts();
-    renderEntradas();
-    renderSaidas();
-    atualizarSaldoHeader();
+    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
     setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
   };
 
   script.onerror = function() {
-    delete window[cbName];
-    script.remove();
-    if (el) { el.textContent = '⚠️ Offline — dados locais'; el.style.color = '#fbbf24'; }
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    setSyncStatus('⚠️ Erro de conexão', '#f87171');
+    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
+    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
   };
 
-  // Timeout de 8s
-  setTimeout(() => {
-    if (window[cbName]) {
-      delete window[cbName];
-      script.remove();
-      if (el) { el.textContent = '⚠️ Offline — dados locais'; el.style.color = '#fbbf24'; }
-    }
-  }, 8000);
-
+  script.src = url + '?action=carregar&callback=' + cbName + '&t=' + Date.now();
   document.head.appendChild(script);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Carrega dados (local imediato + remoto assíncrono)
-  carregarDados();
-
-  // Datas padrão
-  const hoje = new Date().toISOString().slice(0,10);
-  ['in-data','out-data'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) { el.value = hoje; el.dispatchEvent(new Event('input')); }
-  });
-
-  // Mostra indicador de sync apenas quando Sheets configurado
-  const syncEl = document.getElementById('sync-status');
-  if (syncEl && SHEETS_API_URL) syncEl.style.display = 'block';
-
-  initDashCharts();
-  renderEntradas();
-  renderSaidas();
-  renderListaFamilias();
-  renderListaTipos();
-  atualizarSaldoHeader();
-  setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
-
-  document.getElementById('modal-editar').addEventListener('click', function(e) {
-    if (e.target === this) fecharModal();
-  });
-  document.getElementById('modal-editar-familia').addEventListener('click', function(e) {
-    if (e.target === this) fecharModalFamilia();
-  });
-});
-
-// ========== SINCRONIZAÇÃO FORÇADA ==========
-function sincronizarForcado() {
-  const btn = document.getElementById('btn-sync-forcado');
-  const msg = document.getElementById('sync-forcado-msg');
-  if (!SHEETS_API_URL) {
-    if (msg) { msg.textContent = '⚠️ Google Sheets não configurado.'; msg.style.color = 'var(--vermelho)'; }
-    return;
-  }
-  if (btn) btn.disabled = true;
-
-  const totalChunks = Math.ceil(JSON.stringify({ entradas, saidas, nextId }).length / 700);
-  if (msg) { msg.textContent = '⏳ Enviando (0/' + totalChunks + ')...'; msg.style.color = 'var(--cinza)'; }
-
-  // Mostra progresso
-  const origSalvar = window._salvarViaChunks;
-  let parteAtual = 0;
-  const intervalo = setInterval(() => {
-    parteAtual++;
-    if (msg && btn.disabled) {
-      msg.textContent = '⏳ Enviando (' + Math.min(parteAtual, totalChunks) + '/' + totalChunks + ')...';
+// ── SALVAR ENTRADA ────────────────────────────────────────────
+function salvarEntradaRemota(entrada, onSuccess, onError) {
+  const url = getSheetsUrl();
+  if (!url) { if (onSuccess) onSuccess(); return; }
+  setSyncStatus('⏳ Salvando...', '#94a3b8');
+  fetch(url, {
+    method: 'POST', mode: 'cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'add_entrada', data: entrada })
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res && res.status === 'ok') {
+      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
+      if (onSuccess) onSuccess();
     } else {
-      clearInterval(intervalo);
+      setSyncStatus('⚠️ Erro ao salvar', '#f87171');
+      if (onError) onError(res && res.msg);
     }
-  }, 400);
-
-  _salvarViaChunks({ entradas, saidas, nextId }, function(ok) {
-    clearInterval(intervalo);
-    if (btn) btn.disabled = false;
-    if (ok) {
-      if (msg) { msg.textContent = '✅ Dados enviados com sucesso! (' + totalChunks + ' partes)'; msg.style.color = 'var(--verde)'; }
-      const el = document.getElementById('sync-status');
-      if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
-    } else {
-      if (msg) { msg.textContent = '❌ Falha ao enviar. Tente novamente.'; msg.style.color = 'var(--vermelho)'; }
-    }
+  })
+  .catch(err => {
+    setSyncStatus('⚠️ Sem conexão', '#fbbf24');
+    if (onError) onError(err.message);
   });
 }
 
-// ========== LOGIN ==========
-// Para alterar a senha, edite o valor abaixo e faça upload do arquivo atualizado
-const SENHA_ACESSO = 'Guayi@2025';
+// ── SALVAR SAÍDA ──────────────────────────────────────────────
+function salvarSaidaRemota(saida, onSuccess, onError) {
+  const url = getSheetsUrl();
+  if (!url) { if (onSuccess) onSuccess(); return; }
+  setSyncStatus('⏳ Salvando...', '#94a3b8');
+  fetch(url, {
+    method: 'POST', mode: 'cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'add_saida', data: saida })
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res && res.status === 'ok') {
+      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
+      if (onSuccess) onSuccess();
+    } else {
+      setSyncStatus('⚠️ Erro ao salvar', '#f87171');
+      if (onError) onError(res && res.msg);
+    }
+  })
+  .catch(err => {
+    setSyncStatus('⚠️ Sem conexão', '#fbbf24');
+    if (onError) onError(err.message);
+  });
+}
+
+// ── EDITAR REGISTRO ───────────────────────────────────────────
+function editarRemoto(tipo, item, onSuccess, onError) {
+  const url = getSheetsUrl();
+  if (!url) { if (onSuccess) onSuccess(); return; }
+  setSyncStatus('⏳ Salvando edição...', '#94a3b8');
+  fetch(url, {
+    method: 'POST', mode: 'cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'editar_' + tipo, data: item })
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res && res.status === 'ok') {
+      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
+      if (onSuccess) onSuccess();
+    } else {
+      setSyncStatus('⚠️ Erro ao editar', '#f87171');
+      if (onError) onError(res && res.msg);
+    }
+  })
+  .catch(err => { setSyncStatus('⚠️ Sem conexão', '#fbbf24'); if (onError) onError(err.message); });
+}
+
+// ── EXCLUIR REGISTRO ──────────────────────────────────────────
+function excluirRemoto(tipo, id, onSuccess, onError) {
+  const url = getSheetsUrl();
+  if (!url) { if (onSuccess) onSuccess(); return; }
+  setSyncStatus('⏳ Excluindo...', '#94a3b8');
+  fetch(url, {
+    method: 'POST', mode: 'cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'excluir_' + tipo, id: id })
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res && res.status === 'ok') {
+      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
+      if (onSuccess) onSuccess();
+    } else {
+      setSyncStatus('⚠️ Erro ao excluir', '#f87171');
+      if (onError) onError(res && res.msg);
+    }
+  })
+  .catch(err => { setSyncStatus('⚠️ Sem conexão', '#fbbf24'); if (onError) onError(err.message); });
+}
+
+// salvarDados() — mantido por compatibilidade, não faz nada (persistência é por operação)
+function salvarDados() { /* cada operação persiste individualmente */ }
+
+// ══════════════════════════════════════════════════════════════
+// CONFIGURAÇÃO
+// ══════════════════════════════════════════════════════════════
+function salvarConfigUrl() {
+  const input = document.getElementById('cfg-api-url');
+  const st    = document.getElementById('cfg-status');
+  const url   = input ? input.value.trim() : '';
+  if (!url || !url.startsWith('https://script.google.com')) {
+    st.style.display='block'; st.style.background='#FEE2E2'; st.style.color='#B91C1C';
+    st.textContent='❌ URL inválida. Deve começar com https://script.google.com';
+    return;
+  }
+  localStorage.setItem('guayi_api_url', url);
+  window._sheetsUrl = url;
+  st.style.display='block'; st.style.background='#FEF9C3'; st.style.color='#92400E';
+  st.textContent='⏳ Testando conexão...';
+
+  const cbName = '_pingCb_' + Date.now();
+  const script = document.createElement('script');
+  const timer  = setTimeout(() => {
+    if (!window[cbName]) return;
+    delete window[cbName]; script.remove();
+    st.style.background='#FEE2E2'; st.style.color='#B91C1C';
+    st.textContent='❌ Timeout — verifique se a URL está correta e reimplante no Google';
+  }, 12000);
+
+  window[cbName] = function(res) {
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    if (res && res.status === 'ok') {
+      st.style.background='#D8F3DC'; st.style.color='#1A4D35';
+      st.textContent='✅ Conectado com sucesso! Carregando dados...';
+      setTimeout(carregarDados, 800);
+    } else {
+      st.style.background='#FEE2E2'; st.style.color='#B91C1C';
+      st.textContent='❌ Erro: ' + (res && res.msg || 'sem resposta');
+    }
+  };
+  script.onerror = function() {
+    clearTimeout(timer); delete window[cbName]; script.remove();
+    st.style.background='#FEE2E2'; st.style.color='#B91C1C';
+    st.textContent='❌ Erro de conexão — verifique a URL';
+  };
+  script.src = url + '?action=ping&callback=' + cbName + '&t=' + Date.now();
+  document.head.appendChild(script);
+}
+
+function trocarSenhaConfig() {
+  const atual = document.getElementById('cfg-senha-atual') ? document.getElementById('cfg-senha-atual').value : '';
+  const nova  = document.getElementById('cfg-senha-nova')  ? document.getElementById('cfg-senha-nova').value  : '';
+  if (atual !== SENHA_ACESSO) { toast('Senha atual incorreta.', 'err'); return; }
+  if (nova.length < 6) { toast('Nova senha deve ter pelo menos 6 caracteres.', 'err'); return; }
+  localStorage.setItem('guayi_senha_override', nova);
+  toast('✅ Senha alterada com sucesso!');
+  document.getElementById('cfg-senha-atual').value = '';
+  document.getElementById('cfg-senha-nova').value  = '';
+}
+
+// ══════════════════════════════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════════════════════════════
+const SENHA_ACESSO = localStorage.getItem('guayi_senha_override') || 'Guayi@2025';
 const SESSION_KEY  = 'poupanca_guayi_auth';
 
 function fazerLogin() {
@@ -10868,6 +10940,7 @@ function fazerLogin() {
     document.getElementById('login-overlay').classList.add('hidden');
   }
 })();
+
 </script>
 </body>
 </html>
