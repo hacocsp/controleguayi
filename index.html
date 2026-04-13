@@ -1301,13 +1301,11 @@
   <div class="form-card" style="margin-bottom:20px;border:1.5px solid var(--verde-claro)">
     <h3 style="margin:0 0 8px;color:var(--verde);font-size:15px">☁️ Dados salvos automaticamente no Google Sheets</h3>
     <p style="font-size:13px;color:var(--cinza);margin:0 0 14px;line-height:1.6">
-      Cada lançamento é salvo diretamente no Google Sheets no momento do cadastro.
-      Use os botões abaixo para recarregar os dados ou verificar a conexão.
+      Cada lançamento é salvo diretamente no Google Sheets. Use os botões abaixo para recarregar ou testar a conexão.
     </p>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="carregarDados()">🔄 Recarregar dados do Sheets</button>
-      <button class="btn btn-secondary" onclick="testarConexao()">🔗 Testar conexão</button>
-      <span id="sync-forcado-msg" style="font-size:13px;color:var(--cinza)"></span>
+      <button class="btn btn-secondary" onclick="_jsonpGet({action:'ping'}, function(){toast('✅ Conexão OK!');}, function(e){toast('❌ Erro: '+e,'err');})">🔗 Testar conexão</button>
     </div>
   </div>
 
@@ -1410,6 +1408,7 @@
   </div>
 </div>
 
+
 <!-- =========== CONFIGURAÇÃO =========== -->
 <div id="tab-configuracao" class="tab-panel">
   <div class="sec-title">⚙️ Configuração · Conexão com Google Sheets</div>
@@ -1417,8 +1416,8 @@
   <div class="form-card" style="margin-bottom:20px;border:1.5px solid var(--verde-claro)">
     <h3 style="margin:0 0 12px;color:var(--verde);font-size:15px">🔗 URL do Apps Script</h3>
     <p style="font-size:13px;color:var(--cinza);margin:0 0 14px;line-height:1.6">
-      Cole abaixo a URL gerada ao implantar o arquivo <strong>poupanca_script_final.gs</strong>.
-      O portal carregará e salvará dados diretamente no Google Sheets, sem armazenamento local.
+      Cole abaixo a URL do Apps Script implantado. O portal carrega e salva dados diretamente no Google Sheets,
+      sem armazenamento local. A URL padrão já está configurada — substitua somente se necessário.
     </p>
     <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
       <div style="flex:1;min-width:280px">
@@ -1427,19 +1426,18 @@
                style="width:100%;padding:10px 12px;border:1.5px solid var(--cinza-claro);border-radius:8px;font-size:14px">
       </div>
       <button class="btn btn-primary" onclick="salvarConfigUrl()">💾 Salvar & Testar</button>
-      <button class="btn btn-secondary" onclick="recarregarDados()">🔄 Recarregar</button>
+      <button class="btn btn-secondary" onclick="carregarDados()">🔄 Recarregar dados</button>
     </div>
     <div id="cfg-status" style="font-size:13px;font-weight:500;padding:8px 12px;border-radius:6px;display:none"></div>
   </div>
 
   <div class="form-card" style="margin-bottom:20px">
-    <h3 style="margin:0 0 12px;color:var(--verde);font-size:15px">📋 Passo a passo</h3>
+    <h3 style="margin:0 0 12px;color:var(--verde);font-size:15px">📋 Passo a passo para reimplantar o Apps Script</h3>
     <ol style="font-size:13px;color:#374151;line-height:2.2;padding-left:20px">
-      <li>Acesse <strong>script.google.com</strong> → <strong>Novo projeto</strong></li>
-      <li>Apague o código existente → cole o conteúdo do <strong>poupanca_script_final.gs</strong> → salve</li>
-      <li>Clique em <strong>Implantar → Novo deployment → App da Web</strong></li>
-      <li>Executar como: <strong>Eu</strong> · Quem acessa: <strong>Qualquer pessoa</strong></li>
-      <li>Clique <strong>Implantar</strong> → autorize → copie a URL gerada</li>
+      <li>Acesse <strong>script.google.com</strong> → abra o projeto existente</li>
+      <li>Substitua o código pelo novo <strong>poupanca_script_final.gs</strong></li>
+      <li>Salve (Ctrl+S)</li>
+      <li>Clique em <strong>Implantar → Gerenciar implantações → ✏️ editar → Nova versão → Implantar</strong></li>
       <li>Cole a URL acima e clique em <strong>Salvar & Testar</strong></li>
     </ol>
   </div>
@@ -1628,12 +1626,6 @@ function showTab(tab) {
   if (tab === 'saida') renderSaidas();
   if (tab === 'check') { renderCheck(); renderCheckFull(); }
   if (tab === 'cadastros') { renderListaFamilias(); renderListaTipos(); }
-  // Preenche URL salva na aba config
-  if (tab === 'configuracao') {
-    const url = localStorage.getItem('guayi_api_url') || '';
-    const el = document.getElementById('cfg-api-url');
-    if (el && url) el.value = url;
-  }
 }
 
 // ========== TOAST ==========
@@ -1801,28 +1793,21 @@ function adicionarEntrada() {
   const contrib = contribuicoes[fam] || 0;
   const statusVal = contrib === 0 ? 'OK' : (Math.abs(valor - contrib) < 0.01 ? 'OK' : valor > contrib ? 'Maior' : 'Menor');
   const nova = { id: nextId++, contribuicao: fam, data, valor, ref, obs, status: statusVal };
-
-  // Desabilita botão para evitar duplo clique
   const btn = document.querySelector('[onclick="adicionarEntrada()"]');
   if (btn) btn.disabled = true;
-
-  salvarEntradaRemota(nova,
-    function() {
-      // Sucesso — adiciona localmente e atualiza UI
-      entradas.push(nova);
-      limparFormulario('entrada');
-      renderEntradas();
-      atualizarSaldoHeader();
-      toast('✅ Entrada registrada com sucesso!');
-      if (btn) btn.disabled = false;
-    },
-    function(msg) {
-      // Falha — não adiciona localmente, avisa usuário
-      nextId--; // desfaz o incremento
-      toast('❌ Erro ao salvar: ' + (msg || 'verifique sua conexão'), 'err');
-      if (btn) btn.disabled = false;
-    }
-  );
+  salvarEntradaRemota(nova, function() {
+    entradas.push(nova);
+    limparFormulario('entrada');
+    renderEntradas();
+    atualizarSaldoHeader();
+    initDashCharts();
+    toast('✅ Entrada registrada com sucesso!');
+    if (btn) btn.disabled = false;
+  }, function(e) {
+    nextId--;
+    toast('❌ Erro ao salvar: ' + (e || 'verifique o Apps Script'), 'err');
+    if (btn) btn.disabled = false;
+  });
 }
 
 // ========== SAÍDAS ==========
@@ -1872,25 +1857,21 @@ function adicionarSaida() {
   if (!desc || !data || !valor || !ref) { toast('Preencha todos os campos obrigatórios.', 'err'); return; }
   const cat = normalizarSaida('', desc);
   const nova = { id: nextId++, desc, cat, data, valor, ref, obs, turma };
-
   const btn = document.querySelector('[onclick="adicionarSaida()"]');
   if (btn) btn.disabled = true;
-
-  salvarSaidaRemota(nova,
-    function() {
-      saidas.push(nova);
-      limparFormulario('saida');
-      renderSaidas();
-      atualizarSaldoHeader();
-      toast('✅ Saída registrada com sucesso!');
-      if (btn) btn.disabled = false;
-    },
-    function(msg) {
-      nextId--;
-      toast('❌ Erro ao salvar: ' + (msg || 'verifique sua conexão'), 'err');
-      if (btn) btn.disabled = false;
-    }
-  );
+  salvarSaidaRemota(nova, function() {
+    saidas.push(nova);
+    limparFormulario('saida');
+    renderSaidas();
+    atualizarSaldoHeader();
+    initDashCharts();
+    toast('✅ Saída registrada com sucesso!');
+    if (btn) btn.disabled = false;
+  }, function(e) {
+    nextId--;
+    toast('❌ Erro ao salvar: ' + (e || 'verifique o Apps Script'), 'err');
+    if (btn) btn.disabled = false;
+  });
 }
 
 // ========== CHECK MENSAL ==========
@@ -2334,8 +2315,11 @@ function atualizarSaldoHeader() {
   const saldo = getSaldoAtual();
   const el = document.getElementById('saldo-header-val');
   if (el) el.textContent = 'R$ ' + saldo.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-  // Persiste dados a cada atualização de saldo (ocorre após todo lançamento/edição/exclusão/importação)
-  salvarDados();
+  // Atualiza também o card do dashboard
+  const elDash = document.getElementById('dash-saldo');
+  if (elDash) elDash.textContent = fmt(saldo);
+  const elCheck = document.getElementById('check-saldo-total');
+  if (elCheck) elCheck.textContent = fmt(saldo);
 }
 
 // ========== MODAL ==========
@@ -2365,57 +2349,34 @@ function salvarEdicao() {
   const valor = parseFloat(valorStr);
   const obs = document.getElementById('modal-obs').value;
   if (isNaN(valor) || valor <= 0) { toast('Informe um valor válido.', 'err'); return; }
-
-  const tipo = editType;
-  const id   = editId;
+  const tipo = editType; const id = editId;
   let itemAtualizado = null;
-
   if (tipo === 'entrada') {
     const idx = entradas.findIndex(e => String(e.id) === String(id));
-    if (idx >= 0) {
-      entradas[idx].data = data; entradas[idx].valor = valor; entradas[idx].obs = obs;
-      itemAtualizado = entradas[idx];
-    }
+    if (idx >= 0) { entradas[idx].data = data; entradas[idx].valor = valor; entradas[idx].obs = obs; itemAtualizado = entradas[idx]; renderEntradas(); }
   } else {
     const idx = saidas.findIndex(s => String(s.id) === String(id));
-    if (idx >= 0) {
-      saidas[idx].data = data; saidas[idx].valor = valor; saidas[idx].obs = obs;
-      itemAtualizado = saidas[idx];
-    }
+    if (idx >= 0) { saidas[idx].data = data; saidas[idx].valor = valor; saidas[idx].obs = obs; itemAtualizado = saidas[idx]; renderSaidas(); }
   }
-
   fecharModal();
-  tipo === 'entrada' ? renderEntradas() : renderSaidas();
   atualizarSaldoHeader();
+  initDashCharts();
   toast('✅ Lançamento atualizado!');
-
-  // Persiste remotamente (não bloqueia UI)
   if (itemAtualizado) {
-    editarRemoto(tipo, itemAtualizado,
-      function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); },
-      function(msg) { setSyncStatus('⚠️ Edição não sincronizada', '#f87171'); }
-    );
+    editarRemoto(tipo, itemAtualizado, null, function(e) { setSyncStatus('⚠️ Edição não sincronizada: ' + e, '#fbbf24'); });
   }
 }
-
 function excluirLancamento() {
   if (!confirm('Confirmar exclusão?')) return;
-  const tipo = editType;
-  const id   = editId;
-
+  const tipo = editType; const id = editId;
   if (tipo === 'entrada') entradas = entradas.filter(e => String(e.id) !== String(id));
   else saidas = saidas.filter(s => String(s.id) !== String(id));
-
   tipo === 'entrada' ? renderEntradas() : renderSaidas();
   fecharModal();
   atualizarSaldoHeader();
+  initDashCharts();
   toast('🗑️ Lançamento excluído.');
-
-  // Persiste remotamente
-  excluirRemoto(tipo, id,
-    function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); },
-    function(msg) { setSyncStatus('⚠️ Exclusão não sincronizada', '#f87171'); }
-  );
+  excluirRemoto(tipo, id, null, function(e) { setSyncStatus('⚠️ Exclusão não sincronizada: ' + e, '#fbbf24'); });
 }
 
 // ========== MÊS DE REFERÊNCIA AUTOMÁTICO ==========
@@ -2588,7 +2549,7 @@ function renderUltimosLancamentos() {
 }
 
 function initDashCharts() {
-  // ── Calcular totais reais a partir dos arrays entradas/saidas ──
+  // ── Calcular totais dinamicamente ───────────────────────────
   const saldoAtual  = getSaldoAtual();
   const totais = { contrib: 0, rendimento: 0, acoes: 0, passeio: 0, outros: 0 };
 
@@ -2596,92 +2557,70 @@ function initDashCharts() {
     const v = Number(e.valor) || 0;
     const k = normalizarEntrada(e.contribuicao);
     const f = familiasData.find(x => x.nome === e.contribuicao);
-    if (f && f.ativo)              totais.contrib    += v;
-    else if (k === 'Rendimento')   totais.rendimento += v;
-    else if (k === 'Passeio - Entrada') totais.passeio += v;
-    else if (k === 'Ação Arrecadação')  totais.acoes   += v;
-    else                           totais.outros     += v;
+    if (f && f.ativo)                  totais.contrib    += v;
+    else if (k === 'Rendimento')       totais.rendimento += v;
+    else if (k === 'Passeio - Entrada') totais.passeio   += v;
+    else if (k === 'Ação Arrecadação') totais.acoes      += v;
+    else                               totais.outros     += v;
   });
 
   const totalGeral = Object.values(totais).reduce((a,b) => a+b, 0);
   const pct = v => totalGeral > 0 ? ' (' + (v/totalGeral*100).toFixed(1) + '%)' : '';
 
-  // ── Última saída ──
+  // ── Última saída ────────────────────────────────────────────
   const ultimaSaida = saidas.length > 0
-    ? saidas.slice().sort((a,b) => (b.data||'') > (a.data||'') ? 1 : -1)[0]
+    ? saidas.slice().sort((a,b) => ((b.data||'') > (a.data||'') ? 1 : -1))[0]
     : null;
 
-  // ── Saldo Despesas da Sala ──
+  // ── Saldo Despesas da Sala ─────────────────────────────────
   const entDespesas = entradas.filter(e => normalizarEntrada(e.contribuicao) === 'Despesas da sala')
                                .reduce((s,e) => s + (Number(e.valor)||0), 0);
   const saiDespesas = saidas.filter(s => normalizarSaida(s.cat, s.desc) === 'Despesas da sala')
                               .reduce((s,e) => s + (Number(e.valor)||0), 0);
   const saldoDespesas = entDespesas - saiDespesas;
 
-  // ── Atualizar cards do Dashboard ──
+  // ── Famílias ativas ─────────────────────────────────────────
+  const nAtivas = familiasData.filter(f => f.ativo).length;
+  const elAtivas = document.getElementById('dash-familias-ativas');
+  if (elAtivas) elAtivas.textContent = nAtivas || '—';
+
+  // ── Atualizar todos os cards via ID ─────────────────────────
   const setEl = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
 
-  setEl('dash-saldo',        fmt(saldoAtual));
-  setEl('dash-rendimentos',  fmt(totais.rendimento));
-  setEl('dash-familias-ativas', familiasData.filter(f => f.ativo).length);
+  setEl('dash-saldo', fmt(saldoAtual));
+  setEl('dash-rendimentos', fmt(totais.rendimento));
+  setEl('saldo-header-val', 'R$ ' + saldoAtual.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}));
 
-  // Última saída
   if (ultimaSaida) {
     setEl('dash-ultima-saida', fmt(ultimaSaida.valor));
     const mesRef = ultimaSaida.ref ? fmtMes(ultimaSaida.ref) : fmtData(ultimaSaida.data);
-    setEl('dash-ultima-saida-sub', mesRef + ' · ' + (ultimaSaida.desc || '').slice(0,30));
+    setEl('dash-ultima-saida-sub', mesRef + ' · ' + (ultimaSaida.desc||'').slice(0,32));
   } else {
     setEl('dash-ultima-saida', '—');
     setEl('dash-ultima-saida-sub', 'Nenhuma saída registrada');
   }
 
-  // Data de atualização
-  const sub = document.getElementById('dash-saldo-sub');
-  if (sub && entradas.length > 0) {
-    const ultimaEnt = entradas.slice().sort((a,b) => (b.ref||b.data||'') > (a.ref||a.data||'') ? 1 : -1)[0];
-    sub.textContent = 'Atualizado em ' + fmtMes(ultimaEnt.ref || ultimaEnt.data);
+  const subSaldo = document.getElementById('dash-saldo-sub');
+  if (subSaldo && entradas.length > 0) {
+    const ult = entradas.slice().sort((a,b) => ((b.ref||b.data||'') > (a.ref||a.data||'') ? 1 : -1))[0];
+    subSaldo.textContent = 'Atualizado em ' + fmtMes(ult.ref||ult.data);
+  } else if (subSaldo) {
+    subSaldo.textContent = 'Sem lançamentos';
   }
 
-  // ── Atualizar cards do Check Mensal ──
-  setEl('check-saldo-total',    fmt(saldoAtual));
-  setEl('check-rendimentos',    fmt(totais.rendimento));
+  // ── Check Mensal cards ──────────────────────────────────────
+  setEl('check-saldo-total', fmt(saldoAtual));
+  setEl('check-rendimentos', fmt(totais.rendimento));
   const elDesp = document.getElementById('check-despesas-sala');
   if (elDesp) {
-    elDesp.textContent = (saldoDespesas >= 0 ? '' : '-') + fmt(Math.abs(saldoDespesas));
+    elDesp.textContent = (saldoDespesas < 0 ? '-' : '') + fmt(Math.abs(saldoDespesas));
     elDesp.style.color = saldoDespesas >= 0 ? 'var(--verde)' : 'var(--vermelho)';
   }
 
-  // ── Últimos lançamentos ──
+  // ── Últimos lançamentos ─────────────────────────────────────
   renderUltimosLancamentos();
 
-  const ctx1 = document.getElementById('chartSaldo').getContext('2d');
-  const dadosCaixa = calcularCaixa();
-  new Chart(ctx1, {
-    type: 'line',
-    data: {
-      labels: dadosCaixa.slice(-12).map(m => m.mes),
-      datasets: [{
-        label: 'Saldo (R$)',
-        data: dadosCaixa.slice(-12).map(m => m.acum),
-        borderColor: '#2d6a4f',
-        backgroundColor: 'rgba(82,183,136,0.1)',
-        borderWidth: 2, fill: true, tension: 0.4,
-        pointBackgroundColor: '#2d6a4f', pointRadius: 3,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: ctx => 'R$ ' + ctx.raw.toLocaleString('pt-BR',{minimumFractionDigits:2}) } }
-      },
-      scales: {
-        y: { ticks: { callback: v => 'R$ ' + (v/1000).toFixed(1) + 'k' } },
-        x: { grid: { display: false } }
-      }
-    }
-  });
-
-  const ctx2 = document.getElementById('chartComposicao').getContext('2d');
+    const ctx2 = document.getElementById('chartComposicao').getContext('2d');
   const labels = [
     'Contribuições' + pct(totais.contrib),
     'Rendimentos' + pct(totais.rendimento),
@@ -3336,17 +3275,52 @@ function baixarModelo() {
 </script>
 <script>
 
-// ══════════════════════════════════════════════════════════════
-// SINCRONIZAÇÃO — GOOGLE SHEETS
-// Dados carregados sempre do Sheets. Zero localStorage para dados.
-// ══════════════════════════════════════════════════════════════
-
-// ── Getter dinâmico da URL ────────────────────────────────────
-function getSheetsUrl() {
-  return window._sheetsUrl || localStorage.getItem('guayi_api_url') || 'https://script.google.com/macros/s/AKfycbyDMaBm7xHZNaSvsMarHuY5zXG0a13w-Og2mda_rnxL6fMv4CdQFnqEK5eo6NHPABJ7/exec';
+// ========== CONFIGURAÇÕES ==========
+function salvarConfiguracoes() {
+  const titulo = document.getElementById('cfg-titulo').value.trim() || 'Poupança da Sala';
+  const subtitulo = document.getElementById('cfg-subtitulo').value.trim() || 'Escola Waldorf Guayi · 3º Ano';
+  const h1 = document.getElementById('header-titulo');
+  const p = document.getElementById('header-subtitulo');
+  if (h1) h1.textContent = titulo;
+  if (p) p.textContent = subtitulo;
+  document.title = titulo + ' · ' + subtitulo.split('·')[0].trim();
+  toast('✅ Título atualizado!');
 }
 
-// ── Indicador de status ───────────────────────────────────────
+
+function limparDados(tipo) {
+  const msgs = {
+    entradas: 'Tem certeza que deseja apagar TODOS os lançamentos de entradas?',
+    saidas:   'Tem certeza que deseja apagar TODOS os lançamentos de saídas?',
+    familias: 'Tem certeza que deseja remover TODAS as famílias cadastradas?',
+    tudo:     'Tem certeza que deseja apagar TUDO (entradas, saídas e famílias)? Esta ação é IRREVERSÍVEL.'
+  };
+  if (!confirm(msgs[tipo])) return;
+  if (tipo === 'entradas' || tipo === 'tudo') { entradas = []; renderEntradas(); }
+  if (tipo === 'saidas'   || tipo === 'tudo') { saidas = [];   renderSaidas(); }
+  if (tipo === 'familias' || tipo === 'tudo') {
+    familiasData = [];
+    renderListaFamilias();
+    renderContrib();
+    atualizarSelectsFamilias();
+  }
+  atualizarSaldoHeader();
+  toast(`🗑️ ${tipo === 'tudo' ? 'Todos os dados foram' : 'Dados de ' + tipo + ' foram'} apagados.`, 'err');
+}
+
+// ========== PERSISTÊNCIA LOCAL ==========
+// ========== GOOGLE SHEETS — CONFIGURAÇÃO ==========
+// Cole aqui a URL do seu Google Apps Script após publicar (veja o guia)
+// ════════════════════════════════════════════════════════════
+// SINCRONIZAÇÃO GOOGLE SHEETS — sem localStorage para dados
+// Tudo via JSONP GET (sem CORS), uma operação por vez
+// ════════════════════════════════════════════════════════════
+const SHEETS_URL_PADRAO = 'https://script.google.com/macros/s/AKfycbyDMaBm7xHZNaSvsMarHuY5zXG0a13w-Og2mda_rnxL6fMv4CdQFnqEK5eo6NHPABJ7/exec';
+
+function getSheetsUrl() {
+  return window._sheetsUrl || localStorage.getItem('guayi_api_url') || SHEETS_URL_PADRAO;
+}
+
 function setSyncStatus(txt, cor) {
   const el = document.getElementById('sync-status');
   if (!el) return;
@@ -3355,197 +3329,117 @@ function setSyncStatus(txt, cor) {
   el.style.color   = cor || 'var(--verde-claro)';
 }
 
-// ── CARREGAR — GET via JSONP ──────────────────────────────────
-function carregarDados() {
+// ── Função base para todas as operações via JSONP GET ────────
+function _jsonpGet(params, onSuccess, onError) {
   const url = getSheetsUrl();
-  if (!url) {
-    setSyncStatus('⚙️ Configure o Sheets na aba Configuração', '#fbbf24');
-    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
-    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
-    return;
-  }
+  if (!url) { if (onSuccess) onSuccess({status:'ok'}); return; }
 
-  setSyncStatus('⏳ Carregando dados...', '#94a3b8');
-
-  const cbName = '_gsLoad_' + Date.now();
-  const script = document.createElement('script');
-  const timer  = setTimeout(() => {
-    if (!window[cbName]) return;
-    delete window[cbName]; script.remove();
-    setSyncStatus('⚠️ Timeout — sem resposta do servidor', '#fbbf24');
-    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
-    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
-  }, 15000);
-
-  window[cbName] = function(res) {
-    clearTimeout(timer);
-    delete window[cbName]; script.remove();
-    if (res && res.status === 'ok' && res.data) {
-      const d = res.data;
-      entradas = Array.isArray(d.entradas) ? d.entradas : [];
-      saidas   = Array.isArray(d.saidas)   ? d.saidas   : [];
-      const maxId = Math.max(0, ...entradas.map(e => Number(e.id)||0), ...saidas.map(s => Number(s.id)||0));
-      nextId = maxId + 1;
-      setSyncStatus('☁️ Sincronizado · ' + entradas.length + ' lançamentos', 'var(--verde-claro)');
-    } else {
-      setSyncStatus('⚠️ Erro: ' + (res && res.msg || 'sem resposta'), '#f87171');
-    }
-    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
-    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
-  };
-
-  script.onerror = function() {
-    clearTimeout(timer); delete window[cbName]; script.remove();
-    setSyncStatus('⚠️ Erro de conexão', '#f87171');
-    initDashCharts(); renderEntradas(); renderSaidas(); atualizarSaldoHeader();
-    setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
-  };
-
-  script.src = url + '?action=carregar&callback=' + cbName + '&t=' + Date.now();
-  document.head.appendChild(script);
-}
-
-// ── SALVAR ENTRADA ────────────────────────────────────────────
-// ── Função base JSONP para escrita (GET com callback — sem CORS) ──
-function _jsonpWrite(params, statusMsg, onSuccess, onError) {
-  const url = getSheetsUrl();
-  if (!url) { if (onSuccess) onSuccess(); return; }
-  setSyncStatus(statusMsg, '#94a3b8');
-
-  const cbName = '_gsW_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  const cbName = '_gs_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
   const script = document.createElement('script');
   let done = false;
 
   const timer = setTimeout(() => {
     if (done) return; done = true;
     delete window[cbName]; script.remove();
-    setSyncStatus('⚠️ Timeout ao salvar', '#fbbf24');
     if (onError) onError('timeout');
+    else setSyncStatus('⚠️ Timeout — verifique o Apps Script', '#fbbf24');
   }, 20000);
 
   window[cbName] = function(res) {
     if (done) return; done = true;
     clearTimeout(timer); delete window[cbName]; script.remove();
     if (res && res.status === 'ok') {
-      setSyncStatus('☁️ Salvo', 'var(--verde-claro)');
-      if (onSuccess) onSuccess();
+      if (onSuccess) onSuccess(res);
     } else {
-      setSyncStatus('⚠️ Erro ao salvar', '#f87171');
-      if (onError) onError(res && res.msg);
+      const msg = (res && res.msg) || 'sem resposta';
+      setSyncStatus('⚠️ Erro: ' + msg, '#f87171');
+      if (onError) onError(msg);
     }
   };
 
   script.onerror = function() {
     if (done) return; done = true;
     clearTimeout(timer); delete window[cbName]; script.remove();
-    setSyncStatus('⚠️ Sem conexão', '#fbbf24');
+    setSyncStatus('⚠️ Erro de conexão', '#f87171');
     if (onError) onError('network error');
   };
 
-  // Monta URL com todos os parâmetros + callback
   const qs = Object.entries(params)
-    .map(([k, v]) => k + '=' + encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v))
+    .map(([k,v]) => k + '=' + encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : String(v)))
     .join('&');
   script.src = url + '?' + qs + '&callback=' + cbName + '&t=' + Date.now();
   document.head.appendChild(script);
 }
 
+// ── CARREGAR — GET tudo do Sheets ────────────────────────────
+function carregarDados() {
+  const url = getSheetsUrl();
+  if (!url) {
+    setSyncStatus('⚙️ Configure o Sheets na aba ⚙️', '#fbbf24');
+    _renderizarTudo();
+    return;
+  }
+  setSyncStatus('⏳ Carregando...', '#94a3b8');
+  _jsonpGet({ action: 'carregar' }, function(res) {
+    if (res.data) {
+      entradas = Array.isArray(res.data.entradas) ? res.data.entradas : [];
+      saidas   = Array.isArray(res.data.saidas)   ? res.data.saidas   : [];
+      const maxId = Math.max(0, ...entradas.map(e=>Number(e.id)||0), ...saidas.map(s=>Number(s.id)||0));
+      nextId = maxId + 1;
+    }
+    setSyncStatus('☁️ Sincronizado · ' + entradas.length + ' lançamentos', 'var(--verde-claro)');
+    _renderizarTudo();
+  }, function() {
+    setSyncStatus('⚠️ Sem conexão — verifique o Apps Script', '#f87171');
+    _renderizarTudo();
+  });
+}
+
+function _renderizarTudo() {
+  initDashCharts();
+  renderEntradas();
+  renderSaidas();
+  atualizarSaldoHeader();
+  setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
+}
+
+// ── SALVAR ENTRADA ────────────────────────────────────────────
 function salvarEntradaRemota(entrada, onSuccess, onError) {
-  _jsonpWrite(
-    { action: 'add_entrada', data: JSON.stringify(entrada) },
-    '⏳ Salvando entrada...',
-    onSuccess, onError
+  setSyncStatus('⏳ Salvando...', '#94a3b8');
+  _jsonpGet({ action: 'add_entrada', data: JSON.stringify(entrada) },
+    function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); if (onSuccess) onSuccess(); },
+    function(e) { setSyncStatus('⚠️ Erro ao salvar: ' + e, '#f87171'); if (onError) onError(e); }
   );
 }
 
 // ── SALVAR SAÍDA ──────────────────────────────────────────────
 function salvarSaidaRemota(saida, onSuccess, onError) {
-  _jsonpWrite(
-    { action: 'add_saida', data: JSON.stringify(saida) },
-    '⏳ Salvando saída...',
-    onSuccess, onError
+  setSyncStatus('⏳ Salvando...', '#94a3b8');
+  _jsonpGet({ action: 'add_saida', data: JSON.stringify(saida) },
+    function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); if (onSuccess) onSuccess(); },
+    function(e) { setSyncStatus('⚠️ Erro ao salvar: ' + e, '#f87171'); if (onError) onError(e); }
   );
 }
 
-// ── EDITAR REGISTRO ───────────────────────────────────────────
+// ── EDITAR ────────────────────────────────────────────────────
 function editarRemoto(tipo, item, onSuccess, onError) {
-  _jsonpWrite(
-    { action: 'editar_' + tipo, data: JSON.stringify(item) },
-    '⏳ Salvando edição...',
-    onSuccess, onError
+  setSyncStatus('⏳ Salvando edição...', '#94a3b8');
+  _jsonpGet({ action: 'editar_' + tipo, data: JSON.stringify(item) },
+    function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); if (onSuccess) onSuccess(); },
+    function(e) { setSyncStatus('⚠️ Erro ao editar: ' + e, '#f87171'); if (onError) onError(e); }
   );
 }
 
-// ── EXCLUIR REGISTRO ──────────────────────────────────────────
+// ── EXCLUIR ───────────────────────────────────────────────────
 function excluirRemoto(tipo, id, onSuccess, onError) {
-  _jsonpWrite(
-    { action: 'excluir_' + tipo, id: id },
-    '⏳ Excluindo...',
-    onSuccess, onError
+  setSyncStatus('⏳ Excluindo...', '#94a3b8');
+  _jsonpGet({ action: 'excluir_' + tipo, id: String(id) },
+    function() { setSyncStatus('☁️ Salvo', 'var(--verde-claro)'); if (onSuccess) onSuccess(); },
+    function(e) { setSyncStatus('⚠️ Erro ao excluir: ' + e, '#f87171'); if (onError) onError(e); }
   );
 }
 
-// salvarDados() — mantido por compatibilidade, não faz nada (persistência é por operação)
-function salvarDados() { /* cada operação persiste individualmente */ }
-
-// ══════════════════════════════════════════════════════════════
-// CONFIGURAÇÃO
-// ══════════════════════════════════════════════════════════════
-function salvarConfigUrl() {
-  const input = document.getElementById('cfg-api-url');
-  const st    = document.getElementById('cfg-status');
-  const url   = input ? input.value.trim() : '';
-  if (!url || !url.startsWith('https://script.google.com')) {
-    st.style.display='block'; st.style.background='#FEE2E2'; st.style.color='#B91C1C';
-    st.textContent='❌ URL inválida. Deve começar com https://script.google.com';
-    return;
-  }
-  localStorage.setItem('guayi_api_url', url);
-  window._sheetsUrl = url;
-  st.style.display='block'; st.style.background='#FEF9C3'; st.style.color='#92400E';
-  st.textContent='⏳ Testando conexão...';
-
-  const cbName = '_pingCb_' + Date.now();
-  const script = document.createElement('script');
-  const timer  = setTimeout(() => {
-    if (!window[cbName]) return;
-    delete window[cbName]; script.remove();
-    st.style.background='#FEE2E2'; st.style.color='#B91C1C';
-    st.textContent='❌ Timeout — verifique se a URL está correta e reimplante no Google';
-  }, 12000);
-
-  window[cbName] = function(res) {
-    clearTimeout(timer); delete window[cbName]; script.remove();
-    if (res && res.status === 'ok') {
-      st.style.background='#D8F3DC'; st.style.color='#1A4D35';
-      st.textContent='✅ Conectado com sucesso! Carregando dados...';
-      setTimeout(carregarDados, 800);
-    } else {
-      st.style.background='#FEE2E2'; st.style.color='#B91C1C';
-      st.textContent='❌ Erro: ' + (res && res.msg || 'sem resposta');
-    }
-  };
-  script.onerror = function() {
-    clearTimeout(timer); delete window[cbName]; script.remove();
-    st.style.background='#FEE2E2'; st.style.color='#B91C1C';
-    st.textContent='❌ Erro de conexão — verifique a URL';
-  };
-  script.src = url + '?action=ping&callback=' + cbName + '&t=' + Date.now();
-  document.head.appendChild(script);
-}
-
-function trocarSenhaConfig() {
-  const atual = document.getElementById('cfg-senha-atual') ? document.getElementById('cfg-senha-atual').value : '';
-  const nova  = document.getElementById('cfg-senha-nova')  ? document.getElementById('cfg-senha-nova').value  : '';
-  if (atual !== SENHA_ACESSO) { toast('Senha atual incorreta.', 'err'); return; }
-  if (nova.length < 6) { toast('Nova senha deve ter pelo menos 6 caracteres.', 'err'); return; }
-  localStorage.setItem('guayi_senha_override', nova);
-  toast('✅ Senha alterada com sucesso!');
-  document.getElementById('cfg-senha-atual').value = '';
-  document.getElementById('cfg-senha-nova').value  = '';
-}
-
-// ── Limpar dados ─────────────────────────────────────────────
+// ── LIMPAR DADOS ──────────────────────────────────────────────
 function limparDados(tipo) {
   const msgs = {
     entradas: 'Apagar TODOS os lançamentos de entradas?\nIsso também apaga no Google Sheets.',
@@ -3554,74 +3448,132 @@ function limparDados(tipo) {
     tudo:     'Apagar TUDO (entradas, saídas e famílias)?\nEsta ação é IRREVERSÍVEL.'
   };
   if (!confirm(msgs[tipo])) return;
-
   if (tipo === 'entradas' || tipo === 'tudo') { entradas = []; renderEntradas(); }
   if (tipo === 'saidas'   || tipo === 'tudo') { saidas   = []; renderSaidas(); }
   if (tipo === 'familias' || tipo === 'tudo') {
     familiasData = [];
-    if (typeof renderListaFamilias === 'function') renderListaFamilias();
-    if (typeof renderContrib       === 'function') renderContrib();
-    if (typeof atualizarSelectsFamilias === 'function') atualizarSelectsFamilias();
+    if (typeof renderListaFamilias==='function') renderListaFamilias();
+    if (typeof renderContrib==='function') renderContrib();
+    if (typeof atualizarSelectsFamilias==='function') atualizarSelectsFamilias();
   }
-
-  initDashCharts();
-  atualizarSaldoHeader();
+  initDashCharts(); atualizarSaldoHeader();
   toast('🗑️ Dados apagados localmente.', 'err');
-
-  // Sincroniza com Google Sheets
-  const url = getSheetsUrl();
-  if (!url) return;
-  const cbName = '_gsLimpar_' + Date.now();
-  const script = document.createElement('script');
-  const timer  = setTimeout(() => { delete window[cbName]; script.remove(); }, 15000);
-  window[cbName] = function(res) {
-    clearTimeout(timer); delete window[cbName]; script.remove();
-    setSyncStatus(
-      res && res.status === 'ok' ? '☁️ Dados apagados no Sheets' : '⚠️ Apagado local, erro no Sheets',
-      res && res.status === 'ok' ? 'var(--verde-claro)' : '#fbbf24'
-    );
-  };
-  script.onerror = function() { clearTimeout(timer); delete window[cbName]; script.remove(); };
-  script.src = url + '?action=limpar_dados&tipo=' + encodeURIComponent(tipo)
-             + '&callback=' + cbName + '&t=' + Date.now();
-  document.head.appendChild(script);
+  setSyncStatus('⏳ Sincronizando limpeza...', '#94a3b8');
+  _jsonpGet({ action: 'limpar_dados', tipo: tipo },
+    function() { setSyncStatus('☁️ Dados apagados no Sheets', 'var(--verde-claro)'); },
+    function(e) { setSyncStatus('⚠️ Limpeza local ok, erro no Sheets: ' + e, '#fbbf24'); }
+  );
 }
 
-// ── Testar conexão ─────────────────────────────────────────────
-function testarConexao() {
-  const msg = document.getElementById('sync-forcado-msg');
-  if (msg) { msg.textContent = '⏳ Testando...'; msg.style.color = '#94a3b8'; }
-  const url = getSheetsUrl();
-  if (!url) {
-    if (msg) { msg.textContent = '❌ URL não configurada — veja aba ⚙️ Configuração'; msg.style.color = '#B91C1C'; }
+// salvarDados() — compatibilidade (não faz nada, cada op persiste individualmente)
+function salvarDados() {}
+
+// ── CONFIGURAÇÃO ──────────────────────────────────────────────
+function salvarConfigUrl() {
+  const input = document.getElementById('cfg-api-url');
+  const st    = document.getElementById('cfg-status');
+  const url   = input ? input.value.trim() : '';
+  if (!url || !url.startsWith('https://script.google.com')) {
+    if(st){st.style.display='block';st.style.background='#FEE2E2';st.style.color='#B91C1C';
+    st.textContent='❌ URL inválida. Deve começar com https://script.google.com';}
     return;
   }
-  const cbName = '_pingTest_' + Date.now();
-  const script = document.createElement('script');
-  const timer = setTimeout(() => {
-    if (!window[cbName]) return;
-    delete window[cbName]; script.remove();
-    if (msg) { msg.textContent = '❌ Timeout — reimplante o Apps Script'; msg.style.color = '#B91C1C'; }
-  }, 10000);
-  window[cbName] = function(res) {
-    clearTimeout(timer); delete window[cbName]; script.remove();
-    if (res && res.status === 'ok') {
-      if (msg) { msg.textContent = '✅ Conexão OK — ' + (res.msg || 'API ativa'); msg.style.color = 'var(--verde)'; }
-    } else {
-      if (msg) { msg.textContent = '❌ Erro: ' + (res && res.msg || 'sem resposta'); msg.style.color = '#B91C1C'; }
-    }
-  };
-  script.onerror = function() {
-    clearTimeout(timer); delete window[cbName]; script.remove();
-    if (msg) { msg.textContent = '❌ Erro de rede — verifique a URL'; msg.style.color = '#B91C1C'; }
-  };
-  script.src = url + '?action=ping&callback=' + cbName + '&t=' + Date.now();
-  document.head.appendChild(script);
+  localStorage.setItem('guayi_api_url', url);
+  window._sheetsUrl = url;
+  if(st){st.style.display='block';st.style.background='#FEF9C3';st.style.color='#92400E';
+  st.textContent='⏳ Testando conexão...';}
+  _jsonpGet({ action: 'ping' }, function(res) {
+    if(st){st.style.background='#D8F3DC';st.style.color='#1A4D35';
+    st.textContent='✅ Conectado! Carregando dados...';}
+    setTimeout(carregarDados, 500);
+  }, function(e) {
+    if(st){st.style.background='#FEE2E2';st.style.color='#B91C1C';
+    st.textContent='❌ Falha na conexão — reimplante o Apps Script';}
+  });
 }
 
-// ══════════════════════════════════════════════════════════════
-// LOGIN
-// ══════════════════════════════════════════════════════════════
+function trocarSenhaConfig() {
+  const atual = document.getElementById('cfg-senha-atual') ? document.getElementById('cfg-senha-atual').value : '';
+  const nova  = document.getElementById('cfg-senha-nova')  ? document.getElementById('cfg-senha-nova').value  : '';
+  if (atual !== SENHA_ACESSO) { toast('Senha atual incorreta.', 'err'); return; }
+  if (nova.length < 6) { toast('Nova senha deve ter pelo menos 6 caracteres.', 'err'); return; }
+  localStorage.setItem('guayi_senha_override', nova);
+  toast('✅ Senha alterada!');
+  document.getElementById('cfg-senha-atual').value = '';
+  document.getElementById('cfg-senha-nova').value  = '';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Carrega dados (local imediato + remoto assíncrono)
+  carregarDados();
+
+  // Datas padrão
+  const hoje = new Date().toISOString().slice(0,10);
+  ['in-data','out-data'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = hoje; el.dispatchEvent(new Event('input')); }
+  });
+
+  // Mostra indicador de sync apenas quando Sheets configurado
+  const syncEl = document.getElementById('sync-status');
+  if (syncEl && SHEETS_API_URL) syncEl.style.display = 'block';
+
+  initDashCharts();
+  renderEntradas();
+  renderSaidas();
+  renderListaFamilias();
+  renderListaTipos();
+  atualizarSaldoHeader();
+  setTimeout(() => { renderCheck(); renderCheckFull(); }, 100);
+
+  document.getElementById('modal-editar').addEventListener('click', function(e) {
+    if (e.target === this) fecharModal();
+  });
+  document.getElementById('modal-editar-familia').addEventListener('click', function(e) {
+    if (e.target === this) fecharModalFamilia();
+  });
+});
+
+// ========== SINCRONIZAÇÃO FORÇADA ==========
+function sincronizarForcado() {
+  const btn = document.getElementById('btn-sync-forcado');
+  const msg = document.getElementById('sync-forcado-msg');
+  if (!SHEETS_API_URL) {
+    if (msg) { msg.textContent = '⚠️ Google Sheets não configurado.'; msg.style.color = 'var(--vermelho)'; }
+    return;
+  }
+  if (btn) btn.disabled = true;
+
+  const totalChunks = Math.ceil(JSON.stringify({ entradas, saidas, nextId }).length / 700);
+  if (msg) { msg.textContent = '⏳ Enviando (0/' + totalChunks + ')...'; msg.style.color = 'var(--cinza)'; }
+
+  // Mostra progresso
+  const origSalvar = window._salvarViaChunks;
+  let parteAtual = 0;
+  const intervalo = setInterval(() => {
+    parteAtual++;
+    if (msg && btn.disabled) {
+      msg.textContent = '⏳ Enviando (' + Math.min(parteAtual, totalChunks) + '/' + totalChunks + ')...';
+    } else {
+      clearInterval(intervalo);
+    }
+  }, 400);
+
+  _salvarViaChunks({ entradas, saidas, nextId }, function(ok) {
+    clearInterval(intervalo);
+    if (btn) btn.disabled = false;
+    if (ok) {
+      if (msg) { msg.textContent = '✅ Dados enviados com sucesso! (' + totalChunks + ' partes)'; msg.style.color = 'var(--verde)'; }
+      const el = document.getElementById('sync-status');
+      if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--verde-claro)'; }
+    } else {
+      if (msg) { msg.textContent = '❌ Falha ao enviar. Tente novamente.'; msg.style.color = 'var(--vermelho)'; }
+    }
+  });
+}
+
+// ========== LOGIN ==========
+// Para alterar a senha, edite o valor abaixo e faça upload do arquivo atualizado
 const SENHA_ACESSO = localStorage.getItem('guayi_senha_override') || 'Guayi@2025';
 const SESSION_KEY  = 'poupanca_guayi_auth';
 
@@ -3649,7 +3601,6 @@ function fazerLogin() {
     document.getElementById('login-overlay').classList.add('hidden');
   }
 })();
-
 </script>
 </body>
 </html>
